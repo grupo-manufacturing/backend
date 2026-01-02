@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS buyer_profiles (
   email VARCHAR(255),
   business_address TEXT,
   about_business TEXT,
+  daily_design_generation_count INTEGER DEFAULT 0,
+  last_design_generation_date DATE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   last_login TIMESTAMP WITH TIME ZONE
