@@ -29,10 +29,38 @@ app.use(helmet());
 
 // CORS configuration
 const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
-app.use(cors({ origin: (origin, cb) => {
-  if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return cb(null, true);
-  cb(new Error('Not allowed by CORS'));
-}, credentials: true }));
+
+// Default allowed origins for production (if not specified in env)
+const defaultOrigins = [
+  'https://grupo.in',
+  'https://www.grupo.in',
+  'http://localhost:3000'
+];
+
+// Combine env origins with defaults (env takes precedence, but defaults are included if env is empty)
+const allAllowedOrigins = allowedOrigins.length > 0 ? allowedOrigins : defaultOrigins;
+
+app.use(cors({ 
+  origin: (origin, cb) => {
+    // Allow requests with no origin (like mobile apps, Postman, or same-origin requests)
+    if (!origin) {
+      return cb(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allAllowedOrigins.includes(origin)) {
+      return cb(null, true);
+    }
+    
+    // Reject if origin is not allowed
+    console.warn(`[CORS] Blocked request from origin: ${origin}`);
+    cb(new Error('Not allowed by CORS'));
+  }, 
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Authorization']
+}));
 
 // Compression middleware
 app.use(compression());
@@ -89,7 +117,7 @@ app.get('/', (req, res) => {
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: allowedOrigins.length ? allowedOrigins : true,
+    origin: allAllowedOrigins,
     credentials: true
   },
   path: process.env.WS_PATH || '/socket.io'
