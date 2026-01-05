@@ -171,7 +171,7 @@ ${requirement.quantity ? `📊 Quantity: ${requirement.quantity.toLocaleString()
 ${requirement.product_type ? `🏷️ Type: ${requirement.product_type}` : ''}
 
 Login to your Grupo manufacturer portal to submit a quote!
-https://grupo-dev.vercel.app/manufacturer-portal`;
+https://thegrupo.in/manufacturer-portal`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -188,12 +188,8 @@ https://grupo-dev.vercel.app/manufacturer-portal`;
 
 ${manufacturer?.unit_name || 'A manufacturer'} has responded to your requirement!
 
-💰 Quoted Price: ₹${response.quoted_price?.toLocaleString('en-IN') || 'N/A'}
-${response.price_per_unit ? `📦 Per Unit: ₹${response.price_per_unit.toLocaleString('en-IN')}` : ''}
-${response.delivery_time ? `🚚 Delivery: ${response.delivery_time}` : ''}
-
 Login to your Grupo buyer portal to review and respond!
-https://grupo-dev.vercel.app/buyer-portal`;
+https://thegrupo.in/buyer-portal`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -217,7 +213,7 @@ ${status === 'accepted' ? 'Congratulations! The buyer has accepted your quote. Y
 ${status === 'negotiating' ? 'The buyer wants to negotiate. Check your chats for more details.' : ''}
 
 Login to your Grupo manufacturer portal for more details!
-https://grupo-dev.vercel.app/manufacturer-portal`;
+https://thegrupo.in/manufacturer-portal`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -237,7 +233,7 @@ ${aiDesign.quantity ? `📊 Quantity: ${aiDesign.quantity.toLocaleString()}` : '
 ${aiDesign.preferred_colors ? `🎨 Colors: ${aiDesign.preferred_colors}` : ''}
 
 Login to your Grupo manufacturer portal to view the design and submit a quote!
-https://grupo-dev.vercel.app/manufacturer-portal`;
+https://thegrupo.in/manufacturer-portal`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -254,11 +250,8 @@ https://grupo-dev.vercel.app/manufacturer-portal`;
 
 ${manufacturer?.unit_name || 'A manufacturer'} has quoted on your AI design!
 
-💰 Price per unit: ₹${response.price_per_unit?.toLocaleString('en-IN') || 'N/A'}
-📦 Quantity: ${response.quantity?.toLocaleString() || 'N/A'}
-
 Login to your Grupo buyer portal to review and respond!
-https://grupo-dev.vercel.app/buyer-portal`;
+https://thegrupo.in/buyer-portal`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -281,7 +274,7 @@ Your quote for the "${aiDesign?.apparel_type || 'AI design'}" has been ${status}
 ${status === 'accepted' ? 'Congratulations! The buyer has accepted your quote. You can now start chatting to finalize details.' : ''}
 
 Login to your Grupo manufacturer portal for more details!
-https://grupo-dev.vercel.app/manufacturer-portal`;
+https://thegrupo.in/manufacturer-portal`;
 
     return this.sendMessage(phoneNumber, message);
   }
