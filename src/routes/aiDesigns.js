@@ -250,6 +250,58 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// PUT /api/ai-designs/:id/pattern - Update pattern URL (any authenticated user can update)
+router.put('/:id/pattern', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { pattern_url } = req.body;
+
+    if (!pattern_url || pattern_url.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pattern URL is required'
+      });
+    }
+
+    // Verify the design exists
+    const aiDesign = await databaseService.getAIDesign(id);
+    if (!aiDesign) {
+      return res.status(404).json({
+        success: false,
+        message: 'AI design not found'
+      });
+    }
+
+    // For buyers: verify the design belongs to them
+    // For manufacturers: allow update (they might be downloading patterns)
+    if (req.user.role === 'buyer' && aiDesign.buyer_id !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to update this AI design'
+      });
+    }
+
+    // Update the pattern URL (only if it doesn't exist yet, or allow overwrite)
+    const updatedDesign = await databaseService.updateAIDesign(id, {
+      pattern_url: pattern_url.trim()
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Pattern URL updated successfully',
+      data: updatedDesign
+    });
+  } catch (error) {
+    console.error('Update pattern URL error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update pattern URL',
+      error: error.message
+    });
+  }
+});
+
 // PATCH /api/ai-designs/:id/push - Push AI design to manufacturers (Buyer only)
 router.patch('/:id/push', authenticateToken, async (req, res) => {
   try {
