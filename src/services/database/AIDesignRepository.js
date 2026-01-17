@@ -80,7 +80,7 @@ class AIDesignRepository {
   }
 
   /**
-   * Get all published AI designs (for manufacturers)
+   * Get all AI designs (for manufacturers and admin)
    * @param {Object} options - Query options (filters, sorting, pagination)
    * @returns {Promise<Array>} Array of AI designs
    */
@@ -94,8 +94,18 @@ class AIDesignRepository {
 
       let query = supabase
         .from('ai_designs')
-        .select(selectQuery)
-        .eq('status', 'published'); // Only show published designs to manufacturers
+        .select(selectQuery);
+
+      // Apply status filter
+      // For admin (when includeBuyer is true), if status is not specified, include all statuses (draft + published)
+      // For manufacturers, default to only published designs
+      if (options.status) {
+        query = query.eq('status', options.status);
+      } else if (!includeBuyer) {
+        // For manufacturers (when includeBuyer is false), only show published designs
+        query = query.eq('status', 'published');
+      }
+      // For admin (includeBuyer is true) and no status filter, don't filter by status (includes all)
 
       // Apply apparel type filter
       if (options.apparel_type) {
