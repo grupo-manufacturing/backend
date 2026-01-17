@@ -672,19 +672,19 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
     const { status, limit, offset, sortBy, sortOrder } = req.query;
 
     const options = {
-      status: status || undefined,
       limit: limit ? parseInt(limit) : 100,
       offset: offset ? parseInt(offset) : 0,
       sortBy,
       sortOrder
     };
 
-    const orders = await databaseService.getOrders(options);
+    // Fetch all requirements from requirements table
+    const requirements = await databaseService.getAllRequirements(options);
 
     return res.status(200).json({
       success: true,
-      data: orders,
-      count: orders.length
+      data: requirements,
+      count: requirements.length
     });
   } catch (error) {
     console.error('Get orders error:', error);
