@@ -338,20 +338,26 @@ router.patch('/:id/push', authenticateToken, async (req, res) => {
       buyer: buyer || null
     };
 
-    if (io) {
-      io.to('role:manufacturer').emit('ai-design:new', { aiDesign: enrichedAIDesign });
-    }
-
+    // Notify only verified manufacturers
     (async () => {
       try {
-        const manufacturers = await databaseService.getAllManufacturers();
-        for (const manufacturer of manufacturers) {
+        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
+        
+        // Send socket notifications to verified manufacturers only
+        if (io) {
+          for (const manufacturer of verifiedManufacturers) {
+            io.to(`user:${manufacturer.id}`).emit('ai-design:new', { aiDesign: enrichedAIDesign });
+          }
+        }
+
+        // Send WhatsApp notifications to verified manufacturers only
+        for (const manufacturer of verifiedManufacturers) {
           if (manufacturer.phone_number) {
             await whatsappService.notifyNewAIDesign(manufacturer.phone_number, updatedDesign);
           }
         }
       } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+        console.error('Notification error:', waError.message);
       }
     })();
 

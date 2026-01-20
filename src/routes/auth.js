@@ -254,9 +254,7 @@ router.post('/manufacturer-onboarding', [
       location: req.body.location,
       manufacturing_unit_image_url: req.body.manufacturing_unit_image_url || null,
       msme_file_url: req.body.msme_file ? (typeof req.body.msme_file === 'string' ? req.body.msme_file : null) : null,
-      other_certificates_url: req.body.other_certificates ? (typeof req.body.other_certificates === 'string' ? req.body.other_certificates : null) : null,
-      onboarding_completed: true,
-      onboarding_completed_at: new Date().toISOString()
+      other_certificates_url: req.body.other_certificates ? (typeof req.body.other_certificates === 'string' ? req.body.other_certificates : null) : null
     };
 
     const updatedProfile = await authService.submitManufacturerOnboarding(profile.id, onboardingData);
@@ -312,8 +310,7 @@ router.get('/manufacturer-profile', async (req, res) => {
           coi_number: '',
           product_types: [],
           daily_capacity: 0,
-          location: '',
-          onboarding_completed: false
+          location: ''
         }
       }
     });

@@ -102,20 +102,26 @@ router.post('/', authenticateToken, async (req, res) => {
     const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
     const enrichedRequirement = { ...requirement, buyer: buyer || null };
 
-    if (io) {
-      io.to('role:manufacturer').emit('requirement:new', { requirement: enrichedRequirement });
-    }
-
+    // Notify only verified manufacturers
     (async () => {
       try {
-        const manufacturers = await databaseService.getAllManufacturers();
-        for (const manufacturer of manufacturers) {
+        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
+        
+        // Send socket notifications to verified manufacturers only
+        if (io) {
+          for (const manufacturer of verifiedManufacturers) {
+            io.to(`user:${manufacturer.id}`).emit('requirement:new', { requirement: enrichedRequirement });
+          }
+        }
+
+        // Send WhatsApp notifications to verified manufacturers only
+        for (const manufacturer of verifiedManufacturers) {
           if (manufacturer.phone_number) {
             await whatsappService.notifyNewRequirement(manufacturer.phone_number, requirement);
           }
         }
       } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+        console.error('Notification error:', waError.message);
       }
     })();
 

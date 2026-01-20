@@ -59,10 +59,7 @@ CREATE TABLE IF NOT EXISTS manufacturer_profiles (
   msme_number VARCHAR(50),
   msme_file_url TEXT,
   other_certificates_url TEXT,
-  onboarding_completed BOOLEAN DEFAULT FALSE,
-  onboarding_completed_at TIMESTAMP WITH TIME ZONE,
   is_verified BOOLEAN DEFAULT FALSE,
-  verification_status VARCHAR(20) DEFAULT 'pending' CHECK (verification_status IN ('pending', 'Accepted', 'Rejected', 'Blocked')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   last_login TIMESTAMP WITH TIME ZONE
@@ -187,8 +184,6 @@ CREATE INDEX IF NOT EXISTS idx_buyer_profiles_buyer_identifier ON buyer_profiles
 
 CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_phone_number ON manufacturer_profiles(phone_number);
 CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_manufacturer_id ON manufacturer_profiles(manufacturer_id);
-CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_onboarding_completed ON manufacturer_profiles(onboarding_completed);
-CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_verification_status ON manufacturer_profiles(verification_status);
 CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_business_type ON manufacturer_profiles(business_type);
 
 CREATE INDEX IF NOT EXISTS idx_conversations_buyer_manufacturer ON conversations(buyer_id, manufacturer_id);
@@ -220,17 +215,6 @@ CREATE INDEX IF NOT EXISTS idx_ai_design_responses_ai_design_id ON ai_design_res
 CREATE INDEX IF NOT EXISTS idx_ai_design_responses_manufacturer_id ON ai_design_responses(manufacturer_id);
 CREATE INDEX IF NOT EXISTS idx_ai_design_responses_status ON ai_design_responses(status);
 CREATE INDEX IF NOT EXISTS idx_ai_design_responses_created_at ON ai_design_responses(created_at);
-
--- ===========================================
--- CONSTRAINTS
--- ===========================================
-
-ALTER TABLE manufacturer_profiles 
-  ADD CONSTRAINT check_manufacturer_onboarding_completed_fields 
-  CHECK (
-    (onboarding_completed = FALSE) OR 
-    (onboarding_completed = TRUE AND unit_name IS NOT NULL AND business_type IS NOT NULL AND gst_number IS NOT NULL)
-  );
 
 -- ===========================================
 -- FUNCTIONS
@@ -303,42 +287,6 @@ BEGIN
     NEW.buyer_identifier := formatted_id;
   END IF;
   RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION complete_manufacturer_onboarding(profile_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-  UPDATE manufacturer_profiles 
-  SET 
-    onboarding_completed = TRUE,
-    onboarding_completed_at = NOW(),
-    updated_at = NOW()
-  WHERE id = profile_id;
-  RETURN FOUND;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION get_manufacturer_onboarding_status(phone_num VARCHAR(20))
-RETURNS TABLE (
-  id UUID,
-  phone_number VARCHAR(20),
-  unit_name VARCHAR(255),
-  onboarding_completed BOOLEAN,
-  onboarding_completed_at TIMESTAMP WITH TIME ZONE,
-  verification_status VARCHAR(20)
-) AS $$
-BEGIN
-  RETURN QUERY
-  SELECT 
-    mp.id,
-    mp.phone_number,
-    mp.unit_name,
-    mp.onboarding_completed,
-    mp.onboarding_completed_at,
-    mp.verification_status
-  FROM manufacturer_profiles mp
-  WHERE mp.phone_number = phone_num;
 END;
 $$ LANGUAGE plpgsql;
 

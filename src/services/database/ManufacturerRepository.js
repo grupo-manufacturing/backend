@@ -153,14 +153,6 @@ class ManufacturerRepository {
         query = query.eq('is_verified', options.verified);
       }
 
-      if (options.verification_status) {
-        query = query.eq('verification_status', options.verification_status);
-      }
-
-      if (options.onboarding_completed !== undefined) {
-        query = query.eq('onboarding_completed', options.onboarding_completed);
-      }
-
       if (options.business_type) {
         query = query.eq('business_type', options.business_type);
       }

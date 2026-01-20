@@ -67,10 +67,6 @@ router.get('/', async (req, res) => {
   try {
     const options = {
       verified: req.query.verified !== undefined ? req.query.verified === 'true' : undefined,
-      verification_status: req.query.verification_status,
-      onboarding_completed: req.query.onboarding_completed !== undefined 
-        ? req.query.onboarding_completed === 'true' 
-        : undefined,
       business_type: req.query.business_type,
       sortBy: req.query.sortBy || 'created_at',
       sortOrder: req.query.sortOrder || 'desc',
@@ -97,12 +93,13 @@ router.get('/', async (req, res) => {
   }
 });
 
-// PATCH /api/manufacturers/:manufacturerId/verification-status (Admin only)
-router.patch('/:manufacturerId/verification-status', 
+// PATCH /api/manufacturers/:manufacturerId/verified (Admin only)
+router.patch('/:manufacturerId/verified', 
   authenticateAdmin,
   [
-    body('verification_status')
-      .isIn(['pending', 'Accepted', 'Rejected', 'Blocked'])
+    body('verified')
+      .isBoolean()
+      .withMessage('verified must be a boolean value')
   ],
   async (req, res) => {
     try {
@@ -116,7 +113,7 @@ router.patch('/:manufacturerId/verification-status',
       }
 
       const { manufacturerId } = req.params;
-      const { verification_status } = req.body;
+      const { verified } = req.body;
 
       const manufacturer = await databaseService.findManufacturerProfile(manufacturerId);
       if (!manufacturer) {
@@ -127,8 +124,7 @@ router.patch('/:manufacturerId/verification-status',
       }
 
       const updateData = {
-        verification_status,
-        is_verified: verification_status === 'Accepted' ? true : false,
+        is_verified: verified,
         updated_at: new Date().toISOString()
       };
 
