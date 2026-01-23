@@ -62,8 +62,21 @@ app.use(cors({
   exposedHeaders: ['Authorization']
 }));
 
-// Compression middleware
-app.use(compression());
+// Compression middleware - Optimized for performance
+app.use(compression({
+  filter: (req, res) => {
+    // Don't compress if client explicitly requests no compression
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Use default filter (compresses text/html, text/css, application/json, etc.)
+    return compression.filter(req, res);
+  },
+  level: 6, // Balance between speed and compression (1-9, 6 is optimal)
+  threshold: 1024, // Only compress responses > 1KB (small responses don't benefit)
+  // Compress JSON responses (our main response type)
+  // Default filter already includes application/json, but we ensure it's enabled
+}));
 
 // Logging middleware
 app.use(morgan('combined'));
@@ -137,13 +150,16 @@ io.on('connection', async (socket) => {
   try {
     const { userId, role } = socket.user;
 
-    // Join user-specific and role rooms
+    // Join user-specific room only (role rooms not used, removed for efficiency)
     socket.join(`user:${userId}`);
-    if (role) socket.join(`role:${role}`);
 
     // Presence increment
-    onlineCounts.set(userId, (onlineCounts.get(userId) || 0) + 1);
-    io.emit('presence', { userId, online: true });
+    const previousCount = onlineCounts.get(userId) || 0;
+    onlineCounts.set(userId, previousCount + 1);
+    
+    // Only emit presence to the user themselves (not all users)
+    // This reduces unnecessary WebSocket messages
+    socket.emit('presence', { userId, online: true });
 
     // message:send
     socket.on('message:send', async ({ conversationId, body, clientTempId, attachments, requirementId, aiDesignId }) => {
@@ -229,7 +245,9 @@ io.on('connection', async (socket) => {
       const current = onlineCounts.get(userId) || 0;
       if (current <= 1) {
         onlineCounts.delete(userId);
-        io.emit('presence', { userId, online: false });
+        // Only emit presence to the user themselves (not all users)
+        // This reduces unnecessary WebSocket messages
+        socket.emit('presence', { userId, online: false });
       } else {
         onlineCounts.set(userId, current - 1);
       }

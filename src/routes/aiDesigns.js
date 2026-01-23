@@ -221,10 +221,19 @@ router.get('/conversation/:conversationId/accepted', authenticateToken, async (r
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const supabase = require('../config/supabase');
+    
+    // Fetch AI design with buyer data in a single query using relationship
+    const { data: aiDesign, error } = await supabase
+      .from('ai_designs')
+      .select(`
+        *,
+        buyer:buyer_profiles(id, buyer_identifier, full_name, phone_number, business_address)
+      `)
+      .eq('id', id)
+      .single();
 
-    const aiDesign = await databaseService.getAIDesign(id);
-
-    if (!aiDesign) {
+    if (error || !aiDesign) {
       return res.status(404).json({
         success: false,
         message: 'AI design not found'
@@ -238,10 +247,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
       });
     }
 
-    const buyer = await databaseService.findBuyerProfile(aiDesign.buyer_id);
+    // Buyer data is already included from the relationship query
     const enrichedAIDesign = {
       ...aiDesign,
-      buyer: buyer || null
+      buyer: aiDesign.buyer || null
     };
 
     return res.status(200).json({

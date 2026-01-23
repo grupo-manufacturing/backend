@@ -285,9 +285,19 @@ router.get('/conversation/:conversationId/negotiating', authenticateToken, async
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const requirement = await databaseService.getRequirement(id);
+    const supabase = require('../config/supabase');
+    
+    // Fetch requirement with buyer data in a single query using relationship
+    const { data: requirement, error } = await supabase
+      .from('requirements')
+      .select(`
+        *,
+        buyer:buyer_profiles(id, buyer_identifier, full_name, phone_number, business_address)
+      `)
+      .eq('id', id)
+      .single();
 
-    if (!requirement) {
+    if (error || !requirement) {
       return res.status(404).json({
         success: false,
         message: 'Requirement not found'
@@ -301,8 +311,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
       });
     }
 
-    const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
-    const enrichedRequirement = { ...requirement, buyer: buyer || null };
+    // Buyer data is already included from the relationship query
+    const enrichedRequirement = {
+      ...requirement,
+      buyer: requirement.buyer || null
+    };
 
     return res.status(200).json({
       success: true,
