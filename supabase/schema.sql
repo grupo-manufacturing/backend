@@ -185,36 +185,62 @@ CREATE INDEX IF NOT EXISTS idx_buyer_profiles_buyer_identifier ON buyer_profiles
 CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_phone_number ON manufacturer_profiles(phone_number);
 CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_manufacturer_id ON manufacturer_profiles(manufacturer_id);
 CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_business_type ON manufacturer_profiles(business_type);
+CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_is_verified ON manufacturer_profiles(is_verified);
+CREATE INDEX IF NOT EXISTS idx_manufacturer_profiles_verified_created ON manufacturer_profiles(is_verified, created_at DESC);
 
+-- Conversations indexes
 CREATE INDEX IF NOT EXISTS idx_conversations_buyer_manufacturer ON conversations(buyer_id, manufacturer_id);
-CREATE INDEX IF NOT EXISTS idx_conversations_last_message_at ON conversations(last_message_at);
+CREATE INDEX IF NOT EXISTS idx_conversations_buyer_id ON conversations(buyer_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_manufacturer_id ON conversations(manufacturer_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_last_message_at ON conversations(last_message_at DESC NULLS LAST);
 
+-- Messages indexes
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(is_read);
 CREATE INDEX IF NOT EXISTS idx_messages_requirement_id ON messages(requirement_id);
 CREATE INDEX IF NOT EXISTS idx_messages_ai_design_id ON messages(ai_design_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id);
+-- Composite indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(conversation_id, is_read, sender_id);
 
 CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id);
 
+-- Requirements indexes
 CREATE INDEX IF NOT EXISTS idx_requirements_buyer_id ON requirements(buyer_id);
-CREATE INDEX IF NOT EXISTS idx_requirements_created_at ON requirements(created_at);
+CREATE INDEX IF NOT EXISTS idx_requirements_created_at ON requirements(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_requirements_requirement_no ON requirements(requirement_no);
+CREATE INDEX IF NOT EXISTS idx_requirements_buyer_created ON requirements(buyer_id, created_at DESC);
 
+-- Requirement responses indexes
 CREATE INDEX IF NOT EXISTS idx_requirement_responses_requirement_id ON requirement_responses(requirement_id);
 CREATE INDEX IF NOT EXISTS idx_requirement_responses_manufacturer_id ON requirement_responses(manufacturer_id);
 CREATE INDEX IF NOT EXISTS idx_requirement_responses_status ON requirement_responses(status);
+CREATE INDEX IF NOT EXISTS idx_requirement_responses_created_at ON requirement_responses(created_at DESC);
+-- Composite indexes for filtering by manufacturer and status
+CREATE INDEX IF NOT EXISTS idx_requirement_responses_manufacturer_status ON requirement_responses(manufacturer_id, status);
+CREATE INDEX IF NOT EXISTS idx_requirement_responses_requirement_status ON requirement_responses(requirement_id, status);
+CREATE INDEX IF NOT EXISTS idx_requirement_responses_status_manufacturer ON requirement_responses(status, manufacturer_id);
 
+-- AI Designs indexes
 CREATE INDEX IF NOT EXISTS idx_ai_designs_buyer_id ON ai_designs(buyer_id);
 CREATE INDEX IF NOT EXISTS idx_ai_designs_status ON ai_designs(status);
-CREATE INDEX IF NOT EXISTS idx_ai_designs_created_at ON ai_designs(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_designs_created_at ON ai_designs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_designs_apparel_type ON ai_designs(apparel_type);
 CREATE INDEX IF NOT EXISTS idx_ai_designs_design_no ON ai_designs(design_no);
+CREATE INDEX IF NOT EXISTS idx_ai_designs_buyer_status ON ai_designs(buyer_id, status);
+CREATE INDEX IF NOT EXISTS idx_ai_designs_buyer_created ON ai_designs(buyer_id, created_at DESC);
 
+-- AI Design responses indexes
 CREATE INDEX IF NOT EXISTS idx_ai_design_responses_ai_design_id ON ai_design_responses(ai_design_id);
 CREATE INDEX IF NOT EXISTS idx_ai_design_responses_manufacturer_id ON ai_design_responses(manufacturer_id);
 CREATE INDEX IF NOT EXISTS idx_ai_design_responses_status ON ai_design_responses(status);
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_created_at ON ai_design_responses(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_design_responses_created_at ON ai_design_responses(created_at DESC);
+-- Composite indexes for filtering by manufacturer and status
+CREATE INDEX IF NOT EXISTS idx_ai_design_responses_manufacturer_status ON ai_design_responses(manufacturer_id, status);
+CREATE INDEX IF NOT EXISTS idx_ai_design_responses_design_status ON ai_design_responses(ai_design_id, status);
+CREATE INDEX IF NOT EXISTS idx_ai_design_responses_status_manufacturer ON ai_design_responses(status, manufacturer_id);
 
 -- ===========================================
 -- FUNCTIONS

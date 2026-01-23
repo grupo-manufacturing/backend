@@ -40,9 +40,10 @@ class AIDesignRepository {
    */
   async getBuyerAIDesigns(buyerId, options = {}) {
     try {
+      // Select only fields needed for list view to reduce payload size
       let query = supabase
         .from('ai_designs')
-        .select('*')
+        .select('id, apparel_type, design_description, image_url, quantity, status, created_at, updated_at, buyer_id, design_no, pattern_url')
         .eq('buyer_id', buyerId);
 
       // Apply status filter
@@ -90,10 +91,12 @@ class AIDesignRepository {
   async getAllAIDesigns(options = {}) {
     try {
       // Build select query - include buyer info if requested
+      // Select only fields needed for list view to reduce payload size
       const includeBuyer = options.includeBuyer !== false; // Default to true
+      const baseFields = 'id, apparel_type, design_description, image_url, quantity, status, created_at, updated_at, buyer_id, design_no, pattern_url';
       const selectQuery = includeBuyer
-        ? '*, buyer:buyer_profiles(id, full_name, phone_number)'
-        : '*';
+        ? `${baseFields}, buyer:buyer_profiles(id, full_name, phone_number)`
+        : baseFields;
 
       let query = supabase
         .from('ai_designs')

@@ -40,9 +40,10 @@ class RequirementRepository {
    */
   async getBuyerRequirements(buyerId, options = {}) {
     try {
+      // Select only fields needed for list view to reduce payload size
       let query = supabase
         .from('requirements')
-        .select('*')
+        .select('id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link')
         .eq('buyer_id', buyerId);
 
       // Apply sorting
@@ -256,10 +257,11 @@ class RequirementRepository {
    */
   async getAllRequirements(options = {}) {
     try {
+      // Select only fields needed for list view to reduce payload size
       let query = supabase
         .from('requirements')
         .select(`
-          *,
+          id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link,
           buyer:buyer_profiles(id, full_name, phone_number, business_address)
         `);
 

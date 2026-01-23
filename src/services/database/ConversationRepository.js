@@ -58,10 +58,10 @@ class ConversationRepository {
    */
   async listConversations(userId, role, { search, limit = 50, cursor, offset = 0 } = {}) {
     try {
-      // Build the main query
+      // Build the main query - select only fields needed for list view to reduce payload size
       let query = supabase
         .from('conversations')
-        .select('*')
+        .select('id, buyer_id, manufacturer_id, last_message_text, last_message_at, created_at')
         .order('last_message_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(limit)
