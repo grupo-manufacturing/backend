@@ -54,15 +54,18 @@ class ConversationRepository {
 
   /**
    * List conversations for a user based on role
+   * Optimized to avoid N+1 queries by using batch queries instead of individual queries per conversation
    */
-  async listConversations(userId, role, { search, limit = 50, cursor } = {}) {
+  async listConversations(userId, role, { search, limit = 50, cursor, offset = 0 } = {}) {
     try {
+      // Build the main query
       let query = supabase
         .from('conversations')
         .select('*')
         .order('last_message_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
-        .limit(limit);
+        .limit(limit)
+        .range(offset, offset + limit - 1);
 
       if (role === 'buyer') {
         query = query.eq('buyer_id', userId);
@@ -84,35 +87,83 @@ class ConversationRepository {
       }
       const conversations = data || [];
 
-      const withUnreadCounts = await Promise.all(
-        conversations.map(async (conversation) => {
-          try {
-            const { count, error: unreadError } = await supabase
-              .from('messages')
-              .select('id', { count: 'exact', head: true })
-              .eq('conversation_id', conversation.id)
-              .eq('is_read', false)
-              .neq('sender_id', userId);
+      // If no conversations, return early
+      if (conversations.length === 0) {
+        return conversations.map(c => ({ ...c, unread_count: 0 }));
+      }
 
-            if (unreadError) {
-              throw unreadError;
-            }
+      const conversationIds = conversations.map(c => c.id);
 
-            return {
-              ...conversation,
-              unread_count: typeof count === 'number' ? count : 0
-            };
-          } catch (unreadCountError) {
-            console.error('ConversationRepository.listConversations unread count error:', unreadCountError);
-            return {
-              ...conversation,
-              unread_count: 0
-            };
-          }
-        })
-      );
+      // Batch fetch unread counts for all conversations in a single query
+      const { data: unreadMessages, error: unreadError } = await supabase
+        .from('messages')
+        .select('conversation_id')
+        .in('conversation_id', conversationIds)
+        .eq('is_read', false)
+        .neq('sender_id', userId);
 
-      return withUnreadCounts;
+      // Count unread messages per conversation
+      const unreadCountsMap = {};
+      if (!unreadError && unreadMessages && Array.isArray(unreadMessages)) {
+        unreadMessages.forEach(msg => {
+          unreadCountsMap[msg.conversation_id] = (unreadCountsMap[msg.conversation_id] || 0) + 1;
+        });
+      } else if (unreadError) {
+        console.error('ConversationRepository.listConversations unread count error:', unreadError);
+      }
+
+      // Collect unique profile IDs for batch fetching
+      const buyerIds = new Set();
+      const manufacturerIds = new Set();
+      
+      conversations.forEach(c => {
+        if (c.buyer_id) buyerIds.add(c.buyer_id);
+        if (c.manufacturer_id) manufacturerIds.add(c.manufacturer_id);
+      });
+
+      // Batch fetch all buyer profiles in one query
+      let buyerProfilesMap = {};
+      if (buyerIds.size > 0) {
+        const { data: buyers, error: buyerError } = await supabase
+          .from('buyer_profiles')
+          .select('id, buyer_identifier, full_name')
+          .in('id', Array.from(buyerIds));
+
+        if (!buyerError && buyers) {
+          buyers.forEach(buyer => {
+            buyerProfilesMap[buyer.id] = buyer;
+          });
+        } else if (buyerError) {
+          console.error('ConversationRepository.listConversations buyer profiles error:', buyerError);
+        }
+      }
+
+      // Batch fetch all manufacturer profiles in one query
+      let manufacturerProfilesMap = {};
+      if (manufacturerIds.size > 0) {
+        const { data: manufacturers, error: manufacturerError } = await supabase
+          .from('manufacturer_profiles')
+          .select('id, manufacturer_id, unit_name')
+          .in('id', Array.from(manufacturerIds));
+
+        if (!manufacturerError && manufacturers) {
+          manufacturers.forEach(manufacturer => {
+            manufacturerProfilesMap[manufacturer.id] = manufacturer;
+          });
+        } else if (manufacturerError) {
+          console.error('ConversationRepository.listConversations manufacturer profiles error:', manufacturerError);
+        }
+      }
+
+      // Enrich conversations with unread counts and profile data
+      const enriched = conversations.map(conversation => ({
+        ...conversation,
+        unread_count: unreadCountsMap[conversation.id] || 0,
+        buyer: buyerProfilesMap[conversation.buyer_id] || null,
+        manufacturer: manufacturerProfilesMap[conversation.manufacturer_id] || null
+      }));
+
+      return enriched;
     } catch (error) {
       console.error('ConversationRepository.listConversations error:', error);
       throw error;

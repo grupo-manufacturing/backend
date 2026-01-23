@@ -99,37 +99,59 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const requirement = await databaseService.createRequirement(requirementData);
 
-    const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
-    const enrichedRequirement = { ...requirement, buyer: buyer || null };
-
-    // Notify only verified manufacturers
-    (async () => {
-      try {
-        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
-        
-        // Send socket notifications to verified manufacturers only
-        if (io) {
-          for (const manufacturer of verifiedManufacturers) {
-            io.to(`user:${manufacturer.id}`).emit('requirement:new', { requirement: enrichedRequirement });
-          }
-        }
-
-        // Send WhatsApp notifications to verified manufacturers only
-        for (const manufacturer of verifiedManufacturers) {
-          if (manufacturer.phone_number) {
-            await whatsappService.notifyNewRequirement(manufacturer.phone_number, requirement);
-          }
-        }
-      } catch (waError) {
-        console.error('Notification error:', waError.message);
-      }
-    })();
-
-    return res.status(201).json({
+    // Return response immediately - notifications processed in background
+    res.status(201).json({
       success: true,
       message: 'Requirement created successfully',
       data: requirement
     });
+
+    // Process notifications asynchronously (fire and forget)
+    (async () => {
+      try {
+        const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
+        const enrichedRequirement = { ...requirement, buyer: buyer || null };
+
+        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
+        
+        // Send socket notifications to verified manufacturers (non-blocking)
+        if (io && verifiedManufacturers.length > 0) {
+          verifiedManufacturers.forEach(manufacturer => {
+            io.to(`user:${manufacturer.id}`).emit('requirement:new', { requirement: enrichedRequirement });
+          });
+        }
+
+        // Send WhatsApp notifications in parallel batches to avoid rate limiting
+        if (verifiedManufacturers.length > 0) {
+          const BATCH_SIZE = 10; // Process 10 notifications in parallel
+          const DELAY_BETWEEN_BATCHES = 2000; // 2 seconds between batches
+
+          for (let i = 0; i < verifiedManufacturers.length; i += BATCH_SIZE) {
+            const batch = verifiedManufacturers.slice(i, i + BATCH_SIZE);
+            
+            // Process batch in parallel
+            await Promise.allSettled(
+              batch.map(async (manufacturer) => {
+                if (manufacturer.phone_number) {
+                  try {
+                    await whatsappService.notifyNewRequirement(manufacturer.phone_number, requirement);
+                  } catch (error) {
+                    console.error(`Failed to notify manufacturer ${manufacturer.id}:`, error.message);
+                  }
+                }
+              })
+            );
+
+            // Add delay between batches to respect rate limits (except for last batch)
+            if (i + BATCH_SIZE < verifiedManufacturers.length) {
+              await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Background notification error:', error.message);
+      }
+    })();
   } catch (error) {
     console.error('Create requirement error:', error);
     return res.status(500).json({
@@ -143,13 +165,21 @@ router.post('/', authenticateToken, async (req, res) => {
 // GET /api/requirements
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { limit, offset, sortBy, sortOrder } = req.query;
+    // Enforce pagination defaults and maximum limits
+    const DEFAULT_LIMIT = 20;
+    const MAX_LIMIT = 100;
+    
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
+      MAX_LIMIT // Maximum 100
+    );
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
 
     const options = {
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
-      sortBy,
-      sortOrder
+      limit,
+      offset,
+      sortBy: req.query.sortBy,
+      sortOrder: req.query.sortOrder
     };
 
     let requirements;
@@ -467,14 +497,22 @@ router.get('/responses/my-responses', authenticateToken, async (req, res) => {
       });
     }
 
-    const { status, limit, offset, sortBy, sortOrder } = req.query;
+    // Enforce pagination defaults and maximum limits
+    const DEFAULT_LIMIT = 20;
+    const MAX_LIMIT = 100;
+    
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
+      MAX_LIMIT // Maximum 100
+    );
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
 
     const options = {
-      status,
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
-      sortBy,
-      sortOrder
+      status: req.query.status,
+      limit,
+      offset,
+      sortBy: req.query.sortBy,
+      sortOrder: req.query.sortOrder
     };
 
     const responses = await databaseService.getManufacturerResponses(req.user.userId, options);
@@ -675,13 +713,21 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
 // GET /api/requirements/admin/orders (Admin only)
 router.get('/admin/orders', authenticateAdmin, async (req, res) => {
   try {
-    const { status, limit, offset, sortBy, sortOrder } = req.query;
+    // Admin endpoints can have higher limits, but still enforce maximum
+    const DEFAULT_LIMIT = 50;
+    const MAX_LIMIT = 200; // Higher limit for admin
+    
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 50
+      MAX_LIMIT // Maximum 200 for admin
+    );
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
 
     const options = {
-      limit: limit ? parseInt(limit) : 100,
-      offset: offset ? parseInt(offset) : 0,
-      sortBy,
-      sortOrder
+      limit,
+      offset,
+      sortBy: req.query.sortBy,
+      sortOrder: req.query.sortOrder
     };
 
     // Fetch all requirements from requirements table

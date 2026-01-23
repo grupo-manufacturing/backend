@@ -65,13 +65,23 @@ const authenticateAdmin = (req, res, next) => {
 // GET /api/manufacturers
 router.get('/', async (req, res) => {
   try {
+    // Enforce pagination defaults and maximum limits
+    const DEFAULT_LIMIT = 20;
+    const MAX_LIMIT = 100;
+    
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
+      MAX_LIMIT // Maximum 100
+    );
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
+
     const options = {
       verified: req.query.verified !== undefined ? req.query.verified === 'true' : undefined,
       business_type: req.query.business_type,
       sortBy: req.query.sortBy || 'created_at',
       sortOrder: req.query.sortOrder || 'desc',
-      limit: req.query.limit ? parseInt(req.query.limit) : undefined,
-      offset: req.query.offset ? parseInt(req.query.offset) : undefined
+      limit,
+      offset
     };
 
     const manufacturers = await databaseService.getAllManufacturers(options);

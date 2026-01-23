@@ -16,55 +16,58 @@ const sanitizeBody = (text) => {
 router.get('/conversations', authenticateToken, async (req, res) => {
   try {
     const { userId, role } = req.user;
-    const limit = Math.min(parseInt(req.query.limit || '50', 10), 100);
-    const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
+    // Enforce pagination defaults and maximum limits for conversations
+    const DEFAULT_LIMIT = 20;
+    const MAX_LIMIT = 100;
+    
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
+      MAX_LIMIT // Maximum 100
+    );
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
 
+    // Get conversations with related data (buyer/manufacturer profiles) and unread counts
+    // This is now optimized to avoid N+1 queries
     const conversations = await databaseService.listConversations(userId, role, { limit, offset });
 
-    const enriched = await Promise.all((conversations || []).map(async (c) => {
+    // Enrich conversations with peer information using data already fetched via JOINs
+    const enriched = (conversations || []).map((c) => {
       try {
-        let summary = { last_message_text: c.last_message_text, last_message_at: c.last_message_at };
-        try {
-          const { data: lastMsg, error: lastErr } = await require('../config/supabase')
-            .from('messages')
-            .select('body, created_at')
-            .eq('conversation_id', c.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          if (!lastErr && lastMsg) {
-            summary.last_message_text = lastMsg.body;
-            summary.last_message_at = lastMsg.created_at;
-          }
-        } catch (_) {}
+        // Use last_message_text and last_message_at from conversation (updated on message insert)
+        const summary = {
+          last_message_text: c.last_message_text || '',
+          last_message_at: c.last_message_at || c.created_at
+        };
 
+        // Use profile data already fetched via JOINs
         if (role === 'buyer') {
-          const prof = await databaseService.findManufacturerProfile(c.manufacturer_id);
+          const manufacturer = c.manufacturer || {};
           return {
             ...c,
             ...summary,
             peer: {
               id: c.manufacturer_id,
               role: 'manufacturer',
-              displayName: prof?.manufacturer_id || 'Manufacturer'
+              displayName: manufacturer.manufacturer_id || manufacturer.unit_name || 'Manufacturer'
             }
           };
         } else {
-          const prof = await databaseService.findBuyerProfile(c.buyer_id);
+          const buyer = c.buyer || {};
           return {
             ...c,
             ...summary,
             peer: {
               id: c.buyer_id,
               role: 'buyer',
-              displayName: prof?.buyer_identifier || 'Buyer'
+              displayName: buyer.buyer_identifier || buyer.full_name || 'Buyer'
             }
           };
         }
-      } catch {
+      } catch (err) {
+        console.error('Error enriching conversation:', err);
         return c;
       }
-    }));
+    });
 
     res.status(200).json({ success: true, data: { conversations: enriched } });
   } catch (error) {
@@ -115,7 +118,12 @@ router.get('/conversations/:id/messages/requirement/:requirementId', [
     const conversationId = req.params.id;
     const requirementId = req.params.requirementId;
     const before = req.query.before;
-    const limit = parseInt(req.query.limit || '200', 10);
+    // Enforce maximum limit for messages
+    const MAX_MESSAGE_LIMIT = 200;
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || 50, 1), // At least 1, default 50
+      MAX_MESSAGE_LIMIT // Maximum 200
+    );
 
     const convo = await databaseService.getConversation(conversationId);
     const { userId, role } = req.user;
@@ -153,7 +161,12 @@ router.get('/conversations/:id/messages/ai-design/:aiDesignId', [
     const conversationId = req.params.id;
     const aiDesignId = req.params.aiDesignId;
     const before = req.query.before;
-    const limit = parseInt(req.query.limit || '200', 10);
+    // Enforce maximum limit for messages
+    const MAX_MESSAGE_LIMIT = 200;
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || 50, 1), // At least 1, default 50
+      MAX_MESSAGE_LIMIT // Maximum 200
+    );
 
     const convo = await databaseService.getConversation(conversationId);
     const { userId, role } = req.user;
@@ -191,7 +204,12 @@ router.get('/conversations/:id/messages', [
 
     const conversationId = req.params.id;
     const before = req.query.before;
-    const limit = parseInt(req.query.limit || '50', 10);
+    // Enforce maximum limit for messages
+    const MAX_MESSAGE_LIMIT = 100; // Lower limit for general message pagination
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || 50, 1), // At least 1, default 50
+      MAX_MESSAGE_LIMIT // Maximum 100
+    );
     const requirementId = req.query.requirementId || null;
     const aiDesignId = req.query.aiDesignId || null;
 

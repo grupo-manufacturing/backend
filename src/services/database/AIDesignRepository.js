@@ -58,13 +58,16 @@ class AIDesignRepository {
       // Apply sorting
       query = query.order('created_at', { ascending: false });
 
-      // Apply pagination
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
-      if (options.offset) {
-        query = query.range(options.offset, options.offset + (options.limit || 50) - 1);
-      }
+      // Apply pagination with safety defaults
+      const DEFAULT_LIMIT = 20;
+      const MAX_LIMIT = 100;
+      const limit = options.limit 
+        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT) 
+        : DEFAULT_LIMIT;
+      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+
+      query = query.limit(limit);
+      query = query.range(offset, offset + limit - 1);
 
       const { data, error } = await query;
 
@@ -115,13 +118,16 @@ class AIDesignRepository {
       // Apply sorting
       query = query.order('created_at', { ascending: false });
 
-      // Apply pagination
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
-      if (options.offset) {
-        query = query.range(options.offset, options.offset + (options.limit || 50) - 1);
-      }
+      // Apply pagination with safety defaults
+      const DEFAULT_LIMIT = 20;
+      const MAX_LIMIT = 100;
+      const limit = options.limit 
+        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT) 
+        : DEFAULT_LIMIT;
+      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+
+      query = query.limit(limit);
+      query = query.range(offset, offset + limit - 1);
 
       const { data, error } = await query;
 
@@ -494,30 +500,51 @@ class AIDesignRepository {
         return [];
       }
 
-      // Enrich responses with design and manufacturer data
-      const enrichedResponses = await Promise.all(
-        responses.map(async (response) => {
-          // Get AI design details
-          const { data: aiDesign } = await supabase
-            .from('ai_designs')
-            .select('id, apparel_type, design_description, image_url, quantity')
-            .eq('id', response.ai_design_id)
-            .single();
+      // Batch fetch all unique AI design IDs and manufacturer IDs
+      const uniqueAiDesignIds = [...new Set(responses.map(r => r.ai_design_id).filter(Boolean))];
+      const uniqueManufacturerIds = [...new Set(responses.map(r => r.manufacturer_id).filter(Boolean))];
 
-          // Get manufacturer details
-          const { data: manufacturer } = await supabase
-            .from('manufacturer_profiles')
-            .select('id, unit_name, location, business_type')
-            .eq('id', response.manufacturer_id)
-            .single();
+      // Batch fetch all AI designs in one query (we already have aiDesigns, but fetch specific fields needed)
+      const { data: aiDesignsData, error: aiDesignsError } = await supabase
+        .from('ai_designs')
+        .select('id, apparel_type, design_description, image_url, quantity')
+        .in('id', uniqueAiDesignIds);
 
-          return {
-            ...response,
-            ai_design: aiDesign || null,
-            manufacturer: manufacturer || null
-          };
-        })
-      );
+      if (aiDesignsError) {
+        console.error('AIDesignRepository.getBuyerAIDesignResponses aiDesigns batch fetch error:', aiDesignsError);
+      }
+
+      // Batch fetch all manufacturers in one query
+      const { data: manufacturers, error: manufacturersError } = await supabase
+        .from('manufacturer_profiles')
+        .select('id, unit_name, location, business_type')
+        .in('id', uniqueManufacturerIds);
+
+      if (manufacturersError) {
+        console.error('AIDesignRepository.getBuyerAIDesignResponses manufacturers batch fetch error:', manufacturersError);
+      }
+
+      // Create maps for O(1) lookup
+      const aiDesignsMap = new Map();
+      if (aiDesignsData) {
+        aiDesignsData.forEach(design => {
+          aiDesignsMap.set(design.id, design);
+        });
+      }
+
+      const manufacturersMap = new Map();
+      if (manufacturers) {
+        manufacturers.forEach(manufacturer => {
+          manufacturersMap.set(manufacturer.id, manufacturer);
+        });
+      }
+
+      // Enrich responses using maps (no additional queries)
+      const enrichedResponses = responses.map(response => ({
+        ...response,
+        ai_design: aiDesignsMap.get(response.ai_design_id) || null,
+        manufacturer: manufacturersMap.get(response.manufacturer_id) || null
+      }));
 
       return enrichedResponses;
     } catch (error) {

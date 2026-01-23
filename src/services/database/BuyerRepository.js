@@ -157,14 +157,16 @@ class BuyerRepository {
         query = query.order('created_at', { ascending: false });
       }
 
-      // Apply pagination
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
+      // Apply pagination with safety defaults
+      const DEFAULT_LIMIT = 20;
+      const MAX_LIMIT = 100;
+      const limit = options.limit 
+        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT) 
+        : DEFAULT_LIMIT;
+      const offset = options.offset ? Math.max(options.offset, 0) : 0;
 
-      if (options.offset) {
-        query = query.range(options.offset, options.offset + (options.limit || 100) - 1);
-      }
+      query = query.limit(limit);
+      query = query.range(offset, offset + limit - 1);
 
       const { data, error } = await query;
 

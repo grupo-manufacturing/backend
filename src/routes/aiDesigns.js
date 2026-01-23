@@ -113,13 +113,21 @@ router.post('/', authenticateToken, async (req, res) => {
 // GET /api/ai-designs - Get AI designs
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { limit, offset, status, apparel_type, include_responses } = req.query;
+    // Enforce pagination defaults and maximum limits
+    const DEFAULT_LIMIT = 20;
+    const MAX_LIMIT = 100;
+    
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
+      MAX_LIMIT // Maximum 100
+    );
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
 
     const options = {
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
-      status,
-      apparel_type
+      limit,
+      offset,
+      status: req.query.status,
+      apparel_type: req.query.apparel_type
     };
 
     let aiDesigns;
@@ -140,7 +148,7 @@ router.get('/', authenticateToken, async (req, res) => {
       });
     }
 
-    if (include_responses === 'true' && aiDesigns.length > 0) {
+    if (req.query.include_responses === 'true' && aiDesigns.length > 0) {
       const designIds = aiDesigns.map(design => design.id);
       const responsesMap = await databaseService.getAIDesignResponsesBatch(designIds);
       
@@ -332,40 +340,62 @@ router.patch('/:id/push', authenticateToken, async (req, res) => {
 
     const updatedDesign = await databaseService.updateAIDesign(id, { status: 'published' });
 
-    const buyer = await databaseService.findBuyerProfile(updatedDesign.buyer_id);
-    const enrichedAIDesign = {
-      ...updatedDesign,
-      buyer: buyer || null
-    };
-
-    // Notify only verified manufacturers
-    (async () => {
-      try {
-        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
-        
-        // Send socket notifications to verified manufacturers only
-        if (io) {
-          for (const manufacturer of verifiedManufacturers) {
-            io.to(`user:${manufacturer.id}`).emit('ai-design:new', { aiDesign: enrichedAIDesign });
-          }
-        }
-
-        // Send WhatsApp notifications to verified manufacturers only
-        for (const manufacturer of verifiedManufacturers) {
-          if (manufacturer.phone_number) {
-            await whatsappService.notifyNewAIDesign(manufacturer.phone_number, updatedDesign);
-          }
-        }
-      } catch (waError) {
-        console.error('Notification error:', waError.message);
-      }
-    })();
-
-    return res.status(200).json({
+    // Return response immediately - notifications processed in background
+    res.status(200).json({
       success: true,
       message: 'AI design pushed to manufacturers successfully',
       data: updatedDesign
     });
+
+    // Process notifications asynchronously (fire and forget)
+    (async () => {
+      try {
+        const buyer = await databaseService.findBuyerProfile(updatedDesign.buyer_id);
+        const enrichedAIDesign = {
+          ...updatedDesign,
+          buyer: buyer || null
+        };
+
+        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
+        
+        // Send socket notifications to verified manufacturers (non-blocking)
+        if (io && verifiedManufacturers.length > 0) {
+          verifiedManufacturers.forEach(manufacturer => {
+            io.to(`user:${manufacturer.id}`).emit('ai-design:new', { aiDesign: enrichedAIDesign });
+          });
+        }
+
+        // Send WhatsApp notifications in parallel batches to avoid rate limiting
+        if (verifiedManufacturers.length > 0) {
+          const BATCH_SIZE = 10; // Process 10 notifications in parallel
+          const DELAY_BETWEEN_BATCHES = 2000; // 2 seconds between batches
+
+          for (let i = 0; i < verifiedManufacturers.length; i += BATCH_SIZE) {
+            const batch = verifiedManufacturers.slice(i, i + BATCH_SIZE);
+            
+            // Process batch in parallel
+            await Promise.allSettled(
+              batch.map(async (manufacturer) => {
+                if (manufacturer.phone_number) {
+                  try {
+                    await whatsappService.notifyNewAIDesign(manufacturer.phone_number, updatedDesign);
+                  } catch (error) {
+                    console.error(`Failed to notify manufacturer ${manufacturer.id}:`, error.message);
+                  }
+                }
+              })
+            );
+
+            // Add delay between batches to respect rate limits (except for last batch)
+            if (i + BATCH_SIZE < verifiedManufacturers.length) {
+              await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Background notification error:', error.message);
+      }
+    })();
   } catch (error) {
     console.error('Push AI design error:', error);
     return res.status(500).json({
