@@ -148,7 +148,7 @@ class BuyerRepository {
     try {
       // Select only fields needed for list view to reduce payload size
       let query = supabase.from('buyer_profiles')
-        .select('id, buyer_identifier, full_name, business_name, phone_number, created_at');
+        .select('id, buyer_identifier, full_name, phone_number, created_at');
 
       // Apply sorting
       if (options.sortBy) {
