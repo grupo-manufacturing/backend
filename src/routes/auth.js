@@ -478,8 +478,7 @@ router.get('/buyer-profile', async (req, res) => {
           full_name: '',
           email: '',
           phone_number: profile.phone_number,
-          business_address: '',
-          about_business: ''
+          business_address: ''
         },
         designGenerationStatus
       }
@@ -618,8 +617,7 @@ router.put('/buyer-profile', [
   body('full_name').notEmpty().isLength({ min: 1, max: 255 }).withMessage('Full name is required'),
   body('email').notEmpty().isEmail().withMessage('Please provide a valid email address'),
   body('phone_number').optional().isMobilePhone('any'),
-  body('business_address').notEmpty().isLength({ min: 1, max: 1000 }).withMessage('Business address is required'),
-  body('about_business').notEmpty().isLength({ min: 1, max: 1000 }).withMessage('About business is required')
+  body('business_address').notEmpty().isLength({ min: 1, max: 1000 }).withMessage('Business address is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

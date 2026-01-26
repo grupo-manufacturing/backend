@@ -117,10 +117,7 @@ class BuyerRepository {
         // Update existing profile
         const { data, error } = await supabase
           .from('buyer_profiles')
-          .update({
-            ...profileData,
-            updated_at: new Date().toISOString()
-          })
+          .update(profileData)
           .eq('id', profileId)
           .select()
           .single();

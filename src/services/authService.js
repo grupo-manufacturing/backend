@@ -170,17 +170,13 @@ class AuthService {
         if (!profile) {
           // Create new buyer profile
           const profileData = {
-            phone_number: phoneNumber,
-            last_login: new Date().toISOString()
+            phone_number: phoneNumber
           };
           profile = await databaseService.createBuyerProfile(profileData);
           console.log(`New buyer profile created: ${phoneNumber}`);
         } else {
-          // Update existing buyer profile
-          await databaseService.updateBuyerProfileByPhone(phoneNumber, {
-            last_login: new Date().toISOString()
-          });
-          console.log(`Existing buyer profile updated: ${phoneNumber}`);
+          // Update existing buyer profile (no update needed on login)
+          console.log(`Existing buyer profile found: ${phoneNumber}`);
         }
       } else if (role === 'manufacturer') {
         profile = await databaseService.findManufacturerProfileByPhone(phoneNumber);
@@ -189,16 +185,14 @@ class AuthService {
           // Create new manufacturer profile
           const profileData = {
             phone_number: phoneNumber,
-            is_verified: true,
-            last_login: new Date().toISOString()
+            is_verified: true
           };
           profile = await databaseService.createManufacturerProfile(profileData);
           console.log(`New manufacturer profile created: ${phoneNumber}`);
         } else {
           // Update existing manufacturer profile
           await databaseService.updateManufacturerProfileByPhone(phoneNumber, {
-            is_verified: true,
-            last_login: new Date().toISOString()
+            is_verified: true
           });
           console.log(`Existing manufacturer profile verified: ${phoneNumber}`);
         }
@@ -398,8 +392,7 @@ class AuthService {
     try {
       const profileData = {
         phone_number: phoneNumber,
-        is_verified: true,
-        last_login: new Date().toISOString()
+        is_verified: true
       };
       return await databaseService.createManufacturerProfile(profileData);
     } catch (error) {

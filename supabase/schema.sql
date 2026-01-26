@@ -38,9 +38,7 @@ CREATE TABLE IF NOT EXISTS buyer_profiles (
   about_business TEXT,
   daily_design_generation_count INTEGER DEFAULT 0,
   last_design_generation_date DATE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  last_login TIMESTAMP WITH TIME ZONE
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS manufacturer_profiles (
@@ -61,8 +59,7 @@ CREATE TABLE IF NOT EXISTS manufacturer_profiles (
   other_certificates_url TEXT,
   is_verified BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  last_login TIMESTAMP WITH TIME ZONE
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ===========================================
@@ -370,8 +367,6 @@ $$ LANGUAGE plpgsql;
 -- TRIGGERS
 -- ===========================================
 
-CREATE TRIGGER update_buyer_profiles_updated_at BEFORE UPDATE ON buyer_profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_manufacturer_profiles_updated_at BEFORE UPDATE ON manufacturer_profiles
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
