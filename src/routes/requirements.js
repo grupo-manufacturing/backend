@@ -80,16 +80,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const { requirement_text, quantity, product_type, product_link, image_url, notes } = req.body;
 
-    if (!requirement_text || requirement_text.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Requirement text is required'
-      });
-    }
-
     const requirementData = {
       buyer_id: req.user.userId,
-      requirement_text: requirement_text.trim(),
+      requirement_text: requirement_text && requirement_text.trim().length > 0 ? requirement_text.trim() : null,
       quantity: quantity ? parseInt(quantity) : null,
       product_type: product_type ? product_type.trim() : null,
       product_link: product_link ? product_link.trim() : null,
@@ -354,12 +347,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const { requirement_text, quantity, product_type, product_link, image_url, notes } = req.body;
 
     const updateData = {};
-    if (requirement_text !== undefined) updateData.requirement_text = requirement_text.trim();
-    if (quantity !== undefined) updateData.quantity = parseInt(quantity);
-    if (product_type !== undefined) updateData.product_type = product_type.trim();
-    if (product_link !== undefined) updateData.product_link = product_link.trim();
-    if (image_url !== undefined) updateData.image_url = image_url.trim();
-    if (notes !== undefined) updateData.notes = notes.trim();
+    if (requirement_text !== undefined) {
+      updateData.requirement_text = requirement_text && requirement_text.trim().length > 0 ? requirement_text.trim() : null;
+    }
+    if (quantity !== undefined) updateData.quantity = quantity ? parseInt(quantity) : null;
+    if (product_type !== undefined) updateData.product_type = product_type ? product_type.trim() : null;
+    if (product_link !== undefined) updateData.product_link = product_link ? product_link.trim() : null;
+    if (image_url !== undefined) updateData.image_url = image_url ? image_url.trim() : null;
+    if (notes !== undefined) updateData.notes = notes ? notes.trim() : null;
 
     const updatedRequirement = await databaseService.updateRequirement(id, updateData);
 

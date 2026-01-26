@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS requirements (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   buyer_id UUID NOT NULL REFERENCES buyer_profiles(id) ON DELETE CASCADE,
   requirement_no VARCHAR(50) UNIQUE NOT NULL,
-  requirement_text TEXT NOT NULL,
+  requirement_text TEXT,
   quantity INTEGER,
   product_type VARCHAR(255),
   product_link TEXT,

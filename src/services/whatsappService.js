@@ -166,7 +166,6 @@ class WhatsAppService {
     const message = `🔔 *New Requirement on Grupo!*
 
 A buyer is looking for:
-📦 ${requirement.requirement_text || 'Product requirement'}
 ${requirement.quantity ? `📊 Quantity: ${requirement.quantity.toLocaleString()}` : ''}
 ${requirement.product_type ? `🏷️ Type: ${requirement.product_type}` : ''}
 
@@ -205,9 +204,11 @@ https://grupo.in/buyer-portal`;
     const statusEmoji = status === 'accepted' ? '✅' : status === 'rejected' ? '❌' : '💬';
     const statusText = status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : 'In Negotiation';
     
+    const requirementIdentifier = requirement?.requirement_no || requirement?.id || 'the requirement';
+    
     const message = `${statusEmoji} *Quote ${statusText}!*
 
-Your quote for "${requirement?.requirement_text?.slice(0, 50) || 'the requirement'}${requirement?.requirement_text?.length > 50 ? '...' : ''}" has been ${status}.
+Your quote for requirement ${requirementIdentifier} has been ${status}.
 
 ${status === 'accepted' ? 'Congratulations! The buyer has accepted your quote. You can now start chatting to finalize details.' : ''}
 ${status === 'negotiating' ? 'The buyer wants to negotiate. Check your chats for more details.' : ''}
