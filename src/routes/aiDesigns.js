@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
+const geminiService = require('../services/geminiService');
 const { authenticateToken } = require('../middleware/auth');
 const { uploadBase64Image } = require('../config/cloudinary');
 
@@ -212,6 +213,184 @@ router.get('/conversation/:conversationId/accepted', authenticateToken, async (r
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch accepted AI designs',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/ai-designs/generate - Generate AI design using Gemini (Buyer only)
+// Note: This route MUST come before /:id to avoid route conflicts
+router.post('/generate', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'buyer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only buyers can generate AI designs'
+      });
+    }
+
+    const {
+      apparel_type,
+      theme_concept,
+      print_placement,
+      main_elements,
+      preferred_colors
+    } = req.body;
+
+    if (!apparel_type || apparel_type.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Apparel type is required'
+      });
+    }
+
+    // Call Gemini service to generate design
+    const result = await geminiService.generateDesign({
+      apparel_type,
+      theme_concept,
+      print_placement,
+      main_elements,
+      preferred_colors
+    });
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: result.error || 'Failed to generate design',
+        details: result.details,
+        attemptedModels: result.attemptedModels
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        image: result.image
+      }
+    });
+  } catch (error) {
+    console.error('Generate AI design error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to generate AI design',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/ai-designs/extract - Extract design pattern from image using Gemini (Buyer only)
+// Note: This route MUST come before /:id to avoid route conflicts
+router.post('/extract', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'buyer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only buyers can extract designs'
+      });
+    }
+
+    const { image_url, design_id } = req.body;
+
+    if (!image_url || image_url.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image URL is required'
+      });
+    }
+
+    // If design_id is provided, check if pattern_url already exists in database
+    if (design_id) {
+      try {
+        const existingDesign = await databaseService.getAIDesign(design_id);
+        
+        // Verify the design belongs to the buyer
+        if (existingDesign && existingDesign.buyer_id !== req.user.userId) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have permission to extract this design'
+          });
+        }
+
+        // If pattern_url already exists, return it directly (no extraction needed)
+        if (existingDesign && existingDesign.pattern_url) {
+          return res.status(200).json({
+            success: true,
+            data: {
+              image_url: existingDesign.pattern_url,
+              pattern_url: existingDesign.pattern_url
+            }
+          });
+        }
+      } catch (error) {
+        // If check fails, continue with extraction
+        console.warn('Failed to check for existing pattern URL:', error);
+      }
+    }
+
+    // Call Gemini service to extract design
+    const result = await geminiService.extractDesign({
+      imageUrl: image_url.trim()
+    });
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: result.error || 'Failed to extract design',
+        details: result.details,
+        attemptedModels: result.attemptedModels
+      });
+    }
+
+    // Upload extracted design to Cloudinary
+    let cloudinaryUrl = null;
+    try {
+      const uploadResult = await uploadBase64Image(result.image, {
+        folder: `groupo-ai-designs/${req.user.userId}/extracted`,
+        context: {
+          buyer_id: req.user.userId,
+          uploaded_via: 'ai-design-extraction',
+          ...(design_id ? { design_id } : {})
+        },
+        tags: ['ai-design', 'extracted', 'pattern']
+      });
+      cloudinaryUrl = uploadResult.url;
+    } catch (uploadError) {
+      console.error('Cloudinary upload error:', uploadError);
+      // Fallback: Return base64 if Cloudinary upload fails
+      return res.status(200).json({
+        success: true,
+        data: {
+          image_url: result.image,
+          isBase64: true
+        }
+      });
+    }
+
+    // If design_id is provided, save the pattern URL to database
+    if (design_id && cloudinaryUrl) {
+      try {
+        await databaseService.updateAIDesign(design_id, {
+          pattern_url: cloudinaryUrl
+        });
+      } catch (updateError) {
+        console.warn('Failed to save pattern URL to database:', updateError);
+        // Continue even if database update fails
+      }
+    }
+
+    // Return Cloudinary URL
+    return res.status(200).json({
+      success: true,
+      data: {
+        image_url: cloudinaryUrl,
+        pattern_url: cloudinaryUrl
+      }
+    });
+  } catch (error) {
+    console.error('Extract AI design error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to extract AI design',
       error: error.message
     });
   }
