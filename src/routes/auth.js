@@ -208,14 +208,10 @@ router.post('/manufacturer-onboarding', [
   body('unit_name').notEmpty().isLength({ min: 1, max: 255 }).withMessage('Unit name is required'),
   body('business_type').notEmpty().isLength({ min: 1, max: 100 }).withMessage('Business type is required'),
   body('gst_number').notEmpty().isLength({ min: 1, max: 20 }).withMessage('GST number is required'),
-  body('pan_number').optional().isLength({ min: 1, max: 20 }),
-  body('coi_number').optional().isLength({ min: 1, max: 50 }),
   body('product_types').isArray({ min: 1 }).withMessage('At least one product type is required'),
   body('capacity').notEmpty().isInt({ min: 1 }).withMessage('Daily capacity is required and must be greater than 0'),
   body('location').optional().isLength({ min: 1, max: 1000 }),
-  body('manufacturing_unit_image_url').optional().isURL(),
-  body('msme_file').optional(),
-  body('other_certificates').optional()
+  body('manufacturing_unit_image_url').optional().isURL()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -247,14 +243,10 @@ router.post('/manufacturer-onboarding', [
       unit_name: req.body.unit_name,
       business_type: req.body.business_type,
       gst_number: req.body.gst_number,
-      pan_number: req.body.pan_number,
-      coi_number: req.body.coi_number,
       product_types: req.body.product_types || [],
       daily_capacity: req.body.capacity || 0,
       location: req.body.location,
-      manufacturing_unit_image_url: req.body.manufacturing_unit_image_url || null,
-      msme_file_url: req.body.msme_file ? (typeof req.body.msme_file === 'string' ? req.body.msme_file : null) : null,
-      other_certificates_url: req.body.other_certificates ? (typeof req.body.other_certificates === 'string' ? req.body.other_certificates : null) : null
+      manufacturing_unit_image_url: req.body.manufacturing_unit_image_url || null
     };
 
     const updatedProfile = await authService.submitManufacturerOnboarding(profile.id, onboardingData);
@@ -306,8 +298,6 @@ router.get('/manufacturer-profile', async (req, res) => {
           unit_name: '',
           business_type: '',
           gst_number: '',
-          pan_number: '',
-          coi_number: '',
           product_types: [],
           daily_capacity: 0,
           location: ''
@@ -328,8 +318,6 @@ router.put('/manufacturer-profile', [
   body('unit_name').optional().isLength({ min: 1, max: 255 }),
   body('business_type').optional().isLength({ min: 1, max: 100 }),
   body('gst_number').optional().isLength({ min: 1, max: 20 }),
-  body('pan_number').optional().isLength({ min: 1, max: 20 }),
-  body('coi_number').optional().isLength({ min: 1, max: 50 }),
   body('product_types').optional().isArray(),
   body('daily_capacity').optional().isInt({ min: 0 }),
   body('location').optional().isLength({ min: 1, max: 1000 }),

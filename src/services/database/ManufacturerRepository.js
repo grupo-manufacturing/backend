@@ -148,7 +148,7 @@ class ManufacturerRepository {
     try {
       // Select only fields needed for list view to reduce payload size
       let query = supabase.from('manufacturer_profiles')
-        .select('id, manufacturer_id, unit_name, business_type, phone_number, gst_number, coi_number, pan_number, msme_number, manufacturing_unit_image_url, is_verified, created_at');
+        .select('id, manufacturer_id, unit_name, business_type, phone_number, gst_number, msme_number, manufacturing_unit_image_url, is_verified, created_at');
 
       // Apply filters if provided
       if (options.verified !== undefined) {
