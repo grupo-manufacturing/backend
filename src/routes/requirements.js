@@ -1,4 +1,5 @@
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
@@ -68,9 +69,54 @@ const authenticateAdmin = (req, res, next) => {
   }
 };
 
+// Validation middleware for creating requirements
+const validateCreateRequirement = [
+  body('product_type')
+    .notEmpty()
+    .withMessage('Product type is required')
+    .trim()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Product type must be between 1 and 255 characters'),
+  body('quantity')
+    .notEmpty()
+    .withMessage('Quantity is required')
+    .isInt({ min: 1 })
+    .withMessage('Quantity must be a positive integer'),
+  body('requirement_text')
+    .optional()
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage('Requirement text must not exceed 5000 characters'),
+  body('product_link')
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage('Product link must be a valid URL'),
+  body('image_url')
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage('Image URL must be a valid URL'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('Notes must not exceed 2000 characters')
+];
+
 // POST /api/requirements - Create requirement (Buyer only)
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, validateCreateRequirement, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     if (req.user.role !== 'buyer') {
       return res.status(403).json({
         success: false,
@@ -80,14 +126,15 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const { requirement_text, quantity, product_type, product_link, image_url, notes } = req.body;
 
+    // At this point, validation has ensured product_type and quantity are present and valid
     const requirementData = {
       buyer_id: req.user.userId,
+      product_type: product_type.trim(), // Required - validated
+      quantity: parseInt(quantity), // Required - validated as positive integer
       requirement_text: requirement_text && requirement_text.trim().length > 0 ? requirement_text.trim() : null,
-      quantity: quantity ? parseInt(quantity) : null,
-      product_type: product_type ? product_type.trim() : null,
-      product_link: product_link ? product_link.trim() : null,
-      image_url: image_url ? image_url.trim() : null,
-      notes: notes ? notes.trim() : null
+      product_link: product_link && product_link.trim().length > 0 ? product_link.trim() : null,
+      image_url: image_url && image_url.trim().length > 0 ? image_url.trim() : null,
+      notes: notes && notes.trim().length > 0 ? notes.trim() : null
     };
 
     const requirement = await databaseService.createRequirement(requirementData);
