@@ -1,4 +1,5 @@
 const express = require('express');
+const { body, param, query, validationResult } = require('express-validator');
 const router = express.Router();
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
@@ -18,9 +19,77 @@ const isBase64Image = (str) => {
          (str.length > 100 && /^[A-Za-z0-9+/=]+$/.test(str.replace(/\s/g, '')));
 };
 
+// Validation middleware for creating AI design
+const validateCreateAIDesign = [
+  body('image_url')
+    .notEmpty()
+    .withMessage('Image URL is required')
+    .trim()
+    .custom((value) => {
+      // Base64 images can be very long (50k+ characters), so we allow up to 10MB base64
+      // Regular URLs should be reasonable length
+      if (isBase64Image(value)) {
+        // Base64 image - allow up to 10MB (approximately 13.3M characters when base64 encoded)
+        if (value.length > 13300000) {
+          throw new Error('Image is too large. Maximum size is 10MB.');
+        }
+      } else {
+        // Regular URL - validate as URL and reasonable length
+        if (value.length > 5000) {
+          throw new Error('Image URL must not exceed 5000 characters');
+        }
+        // Basic URL validation (can be http, https, or data URI)
+        if (!value.match(/^(https?:\/\/|data:image\/)/i)) {
+          throw new Error('Image URL must be a valid HTTP/HTTPS URL or data URI');
+        }
+      }
+      return true;
+    }),
+  body('apparel_type')
+    .notEmpty()
+    .withMessage('Apparel type is required')
+    .trim()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Apparel type must be between 1 and 255 characters'),
+  body('quantity')
+    .notEmpty()
+    .withMessage('Quantity is required')
+    .isInt({ min: 1 })
+    .withMessage('Quantity must be a positive integer'),
+  body('design_description')
+    .optional()
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage('Design description must not exceed 5000 characters'),
+  body('preferred_colors')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Preferred colors must not exceed 500 characters'),
+  body('print_placement')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Print placement must not exceed 500 characters'),
+  body('status')
+    .optional()
+    .isIn(['draft', 'published'])
+    .withMessage('Status must be either "draft" or "published"')
+];
+
 // POST /api/ai-designs - Create new AI design (Buyer only)
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, validateCreateAIDesign, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     if (req.user.role !== 'buyer') {
       return res.status(403).json({
         success: false,
@@ -38,54 +107,14 @@ router.post('/', authenticateToken, async (req, res) => {
       status
     } = req.body;
 
-    if (!image_url || image_url.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Image URL is required'
-      });
-    }
+    const isBase64 = isBase64Image(image_url);
+    const initialImageUrl = image_url.trim();
 
-    if (!apparel_type || apparel_type.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Apparel type is required'
-      });
-    }
-
-    if (!quantity || quantity <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Quantity must be greater than 0'
-      });
-    }
-
-    let finalImageUrl = image_url.trim();
-
-    if (isBase64Image(image_url)) {
-      try {
-        const uploadResult = await uploadBase64Image(image_url, {
-          folder: `groupo-ai-designs/${req.user.userId}`,
-          context: {
-            buyer_id: req.user.userId,
-            apparel_type: apparel_type.trim(),
-            uploaded_via: 'ai-design-generation'
-          },
-          tags: ['ai-design', 'generated', apparel_type.toLowerCase().replace(/\s+/g, '-')]
-        });
-        finalImageUrl = uploadResult.url;
-      } catch (uploadError) {
-        console.error('Failed to upload image to Cloudinary:', uploadError);
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to upload image to Cloudinary',
-          error: uploadError.message
-        });
-      }
-    }
-
+    // Create design immediately with base64 URL (or existing URL)
+    // Cloudinary upload will happen in background and update the record
     const aiDesignData = {
       buyer_id: req.user.userId,
-      image_url: finalImageUrl,
+      image_url: initialImageUrl, // Store base64 or URL initially
       apparel_type: apparel_type.trim(),
       design_description: design_description ? design_description.trim() : null,
       quantity: parseInt(quantity),
@@ -96,11 +125,40 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const aiDesign = await databaseService.createAIDesign(aiDesignData);
 
-    return res.status(201).json({
+    // Return response immediately - Cloudinary upload happens in background
+    res.status(201).json({
       success: true,
       message: 'AI design published successfully',
       data: aiDesign
     });
+
+    // Upload to Cloudinary asynchronously (fire and forget)
+    if (isBase64) {
+      (async () => {
+        try {
+          const uploadResult = await uploadBase64Image(initialImageUrl, {
+            folder: `groupo-ai-designs/${req.user.userId}`,
+            context: {
+              buyer_id: req.user.userId,
+              apparel_type: apparel_type.trim(),
+              uploaded_via: 'ai-design-generation'
+            },
+            tags: ['ai-design', 'generated', apparel_type.toLowerCase().replace(/\s+/g, '-')]
+          });
+
+          // Update the design record with Cloudinary URL
+          await databaseService.updateAIDesign(aiDesign.id, {
+            image_url: uploadResult.url
+          });
+
+          console.log(`Successfully uploaded AI design ${aiDesign.id} to Cloudinary`);
+        } catch (uploadError) {
+          console.error(`Failed to upload AI design ${aiDesign.id} to Cloudinary:`, uploadError);
+          // Design is already saved with base64 URL, so it's still usable
+          // Could optionally set a flag or send notification about upload failure
+        }
+      })();
+    }
   } catch (error) {
     console.error('Create AI design error:', error);
     return res.status(500).json({
@@ -111,9 +169,28 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Validation middleware for getting AI designs
+const validateGetAIDesigns = [
+  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('offset').optional().isInt({ min: 0 }),
+  query('status').optional().isIn(['draft', 'published']),
+  query('apparel_type').optional().trim().isLength({ max: 255 }),
+  query('include_responses').optional().isIn(['true', 'false'])
+];
+
 // GET /api/ai-designs - Get AI designs
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateToken, validateGetAIDesigns, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     // Enforce pagination defaults and maximum limits
     const DEFAULT_LIMIT = 20;
     const MAX_LIMIT = 100;
@@ -174,10 +251,25 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Validation middleware for conversation routes
+const validateConversationId = [
+  param('conversationId').isUUID().withMessage('Conversation ID must be a valid UUID')
+];
+
 // GET /api/ai-designs/conversation/:conversationId/accepted - Get accepted AI designs for conversation
 // Note: This route MUST come before /:id to avoid route conflicts
-router.get('/conversation/:conversationId/accepted', authenticateToken, async (req, res) => {
+router.get('/conversation/:conversationId/accepted', authenticateToken, validateConversationId, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     const { conversationId } = req.params;
     
     const conversation = await databaseService.getConversation(conversationId);
@@ -218,10 +310,50 @@ router.get('/conversation/:conversationId/accepted', authenticateToken, async (r
   }
 });
 
+// Validation middleware for generating AI design
+const validateGenerateAIDesign = [
+  body('apparel_type')
+    .notEmpty()
+    .withMessage('Apparel type is required')
+    .trim()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Apparel type must be between 1 and 255 characters'),
+  body('theme_concept')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Theme concept must not exceed 1000 characters'),
+  body('print_placement')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Print placement must not exceed 500 characters'),
+  body('main_elements')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Main elements must not exceed 1000 characters'),
+  body('preferred_colors')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Preferred colors must not exceed 500 characters')
+];
+
 // POST /api/ai-designs/generate - Generate AI design using Gemini (Buyer only)
 // Note: This route MUST come before /:id to avoid route conflicts
-router.post('/generate', authenticateToken, async (req, res) => {
+router.post('/generate', authenticateToken, validateGenerateAIDesign, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     if (req.user.role !== 'buyer') {
       return res.status(403).json({
         success: false,
@@ -236,13 +368,6 @@ router.post('/generate', authenticateToken, async (req, res) => {
       main_elements,
       preferred_colors
     } = req.body;
-
-    if (!apparel_type || apparel_type.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Apparel type is required'
-      });
-    }
 
     // Call Gemini service to generate design
     const result = await geminiService.generateDesign({
@@ -278,10 +403,52 @@ router.post('/generate', authenticateToken, async (req, res) => {
   }
 });
 
+// Validation middleware for extracting AI design
+const validateExtractAIDesign = [
+  body('image_url')
+    .notEmpty()
+    .withMessage('Image URL is required')
+    .trim()
+    .custom((value) => {
+      // Base64 images can be very long (50k+ characters), so we allow up to 10MB base64
+      // Regular URLs should be reasonable length
+      if (isBase64Image(value)) {
+        // Base64 image - allow up to 10MB (approximately 13.3M characters when base64 encoded)
+        if (value.length > 13300000) {
+          throw new Error('Image is too large. Maximum size is 10MB.');
+        }
+      } else {
+        // Regular URL - validate as URL and reasonable length
+        if (value.length > 5000) {
+          throw new Error('Image URL must not exceed 5000 characters');
+        }
+        // Basic URL validation (can be http, https, or data URI)
+        if (!value.match(/^(https?:\/\/|data:image\/)/i)) {
+          throw new Error('Image URL must be a valid HTTP/HTTPS URL or data URI');
+        }
+      }
+      return true;
+    }),
+  body('design_id')
+    .optional()
+    .isUUID()
+    .withMessage('Design ID must be a valid UUID')
+];
+
 // POST /api/ai-designs/extract - Extract design pattern from image using Gemini (Buyer only)
 // Note: This route MUST come before /:id to avoid route conflicts
-router.post('/extract', authenticateToken, async (req, res) => {
+router.post('/extract', authenticateToken, validateExtractAIDesign, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     if (req.user.role !== 'buyer') {
       return res.status(403).json({
         success: false,
@@ -290,13 +457,6 @@ router.post('/extract', authenticateToken, async (req, res) => {
     }
 
     const { image_url, design_id } = req.body;
-
-    if (!image_url || image_url.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Image URL is required'
-      });
-    }
 
     // If design_id is provided, check if pattern_url already exists in database
     if (design_id) {
@@ -396,9 +556,24 @@ router.post('/extract', authenticateToken, async (req, res) => {
   }
 });
 
+// Validation middleware for ID parameter
+const validateId = [
+  param('id').isUUID().withMessage('ID must be a valid UUID')
+];
+
 // GET /api/ai-designs/:id - Get single AI design by ID
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, validateId, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     const { id } = req.params;
     const supabase = require('../config/supabase');
     
@@ -446,19 +621,33 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Validation middleware for updating pattern URL
+const validateUpdatePattern = [
+  param('id').isUUID().withMessage('ID must be a valid UUID'),
+  body('pattern_url')
+    .notEmpty()
+    .withMessage('Pattern URL is required')
+    .trim()
+    .isLength({ min: 1, max: 5000 })
+    .withMessage('Pattern URL must be between 1 and 5000 characters')
+];
+
 // PUT /api/ai-designs/:id/pattern - Update pattern URL (any authenticated user can update)
-router.put('/:id/pattern', authenticateToken, async (req, res) => {
+router.put('/:id/pattern', authenticateToken, validateUpdatePattern, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     const { id } = req.params;
 
     const { pattern_url } = req.body;
-
-    if (!pattern_url || pattern_url.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Pattern URL is required'
-      });
-    }
 
     // Verify the design exists
     const aiDesign = await databaseService.getAIDesign(id);
@@ -499,8 +688,18 @@ router.put('/:id/pattern', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/ai-designs/:id/push - Push AI design to manufacturers (Buyer only)
-router.patch('/:id/push', authenticateToken, async (req, res) => {
+router.patch('/:id/push', authenticateToken, validateId, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     const { id } = req.params;
 
     if (req.user.role !== 'buyer') {
@@ -595,8 +794,18 @@ router.patch('/:id/push', authenticateToken, async (req, res) => {
 });
 
 // DELETE /api/ai-designs/:id - Delete AI design (Buyer or Admin)
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, validateId, async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     const { id } = req.params;
 
     const existingAIDesign = await databaseService.getAIDesign(id);
