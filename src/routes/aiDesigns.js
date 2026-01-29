@@ -487,7 +487,7 @@ router.post('/extract', authenticateToken, validateExtractAIDesign, async (req, 
       }
     }
 
-    // Call Gemini service to extract design
+    // Call Gemini service to extract design (processing time varies based on Gemini AI)
     const result = await geminiService.extractDesign({
       imageUrl: image_url.trim()
     });
@@ -501,51 +501,46 @@ router.post('/extract', authenticateToken, validateExtractAIDesign, async (req, 
       });
     }
 
-    // Upload extracted design to Cloudinary
-    let cloudinaryUrl = null;
-    try {
-      const uploadResult = await uploadBase64Image(result.image, {
-        folder: `groupo-ai-designs/${req.user.userId}/extracted`,
-        context: {
-          buyer_id: req.user.userId,
-          uploaded_via: 'ai-design-extraction',
-          ...(design_id ? { design_id } : {})
-        },
-        tags: ['ai-design', 'extracted', 'pattern']
-      });
-      cloudinaryUrl = uploadResult.url;
-    } catch (uploadError) {
-      console.error('Cloudinary upload error:', uploadError);
-      // Fallback: Return base64 if Cloudinary upload fails
-      return res.status(200).json({
-        success: true,
-        data: {
-          image_url: result.image,
-          isBase64: true
-        }
-      });
-    }
-
-    // If design_id is provided, save the pattern URL to database
-    if (design_id && cloudinaryUrl) {
-      try {
-        await databaseService.updateAIDesign(design_id, {
-          pattern_url: cloudinaryUrl
-        });
-      } catch (updateError) {
-        console.warn('Failed to save pattern URL to database:', updateError);
-        // Continue even if database update fails
-      }
-    }
-
-    // Return Cloudinary URL
-    return res.status(200).json({
+    // Return base64 immediately - Cloudinary upload happens in background
+    res.status(200).json({
       success: true,
       data: {
-        image_url: cloudinaryUrl,
-        pattern_url: cloudinaryUrl
+        image_url: result.image,
+        isBase64: true
       }
     });
+
+    // Upload to Cloudinary asynchronously (fire and forget)
+    (async () => {
+      try {
+        const uploadResult = await uploadBase64Image(result.image, {
+          folder: `groupo-ai-designs/${req.user.userId}/extracted`,
+          context: {
+            buyer_id: req.user.userId,
+            uploaded_via: 'ai-design-extraction',
+            ...(design_id ? { design_id } : {})
+          },
+          tags: ['ai-design', 'extracted', 'pattern']
+        });
+
+        // If design_id is provided, save the Cloudinary URL to database
+        if (design_id && uploadResult.url) {
+          try {
+            await databaseService.updateAIDesign(design_id, {
+              pattern_url: uploadResult.url
+            });
+            console.log(`Successfully saved pattern URL for design ${design_id} to database`);
+          } catch (updateError) {
+            console.warn(`Failed to save pattern URL for design ${design_id} to database:`, updateError);
+            // Continue even if database update fails
+          }
+        }
+      } catch (uploadError) {
+        console.error('Cloudinary upload error (background):', uploadError);
+        // Design is already returned with base64, so extraction is still successful
+        // Cloudinary upload failure doesn't affect the user experience
+      }
+    })();
   } catch (error) {
     console.error('Extract AI design error:', error);
     return res.status(500).json({
