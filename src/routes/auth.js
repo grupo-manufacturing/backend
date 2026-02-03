@@ -196,6 +196,12 @@ router.post('/logout', async (req, res) => {
     });
   } catch (error) {
     console.error('Logout error:', error);
+    if (error.message === 'Invalid or expired token') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
     res.status(400).json({
       success: false,
       message: error.message || 'Logout failed'
@@ -258,6 +264,12 @@ router.post('/manufacturer-onboarding', [
     });
   } catch (error) {
     console.error('Onboarding submission error:', error);
+    if (error.message === 'Invalid or expired token') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
     res.status(400).json({
       success: false,
       message: error.message || 'Failed to submit onboarding data'
@@ -361,6 +373,12 @@ router.put('/manufacturer-profile', [
     });
   } catch (error) {
     console.error('Update manufacturer profile error:', error);
+    if (error.message === 'Invalid or expired token') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
     res.status(400).json({
       success: false,
       message: error.message || 'Failed to update profile'
@@ -473,6 +491,12 @@ router.get('/buyer-profile', async (req, res) => {
     });
   } catch (error) {
     console.error('Get buyer profile error:', error);
+    if (error.message === 'Invalid or expired token') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
     res.status(400).json({
       success: false,
       message: error.message || 'Failed to get profile'
@@ -524,6 +548,12 @@ router.get('/buyer-profile/design-generation-status', async (req, res) => {
     });
   } catch (error) {
     console.error('Get design generation status error:', error);
+    if (error.message === 'Invalid or expired token') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
     return res.status(500).json({
       success: false,
       message: 'Failed to get design generation status',
@@ -592,6 +622,12 @@ router.post('/buyer-profile/increment-design-generation', async (req, res) => {
     });
   } catch (error) {
     console.error('Increment design generation count error:', error);
+    if (error.message === 'Invalid or expired token') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
     return res.status(500).json({
       success: false,
       message: 'Failed to increment design generation count',
@@ -645,6 +681,12 @@ router.put('/buyer-profile', [
     });
   } catch (error) {
     console.error('Update buyer profile error:', error);
+    if (error.message === 'Invalid or expired token') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
     res.status(400).json({
       success: false,
       message: error.message || 'Failed to update profile'

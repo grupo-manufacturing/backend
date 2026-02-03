@@ -83,22 +83,22 @@ const validateCreateRequirement = [
     .isInt({ min: 1 })
     .withMessage('Quantity must be a positive integer'),
   body('requirement_text')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
     .isLength({ max: 5000 })
     .withMessage('Requirement text must not exceed 5000 characters'),
   body('product_link')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
-    .isURL()
+    .isURL({ require_protocol: false, allow_underscores: true })
     .withMessage('Product link must be a valid URL'),
   body('image_url')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
-    .isURL()
+    .isURL({ require_protocol: false, allow_underscores: true })
     .withMessage('Image URL must be a valid URL'),
   body('notes')
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
     .isLength({ max: 2000 })
     .withMessage('Notes must not exceed 2000 characters')
@@ -110,10 +110,12 @@ router.post('/', authenticateToken, validateCreateRequirement, async (req, res) 
     // Check validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      const errorsArray = errors.array();
+      const firstMsg = errorsArray[0]?.msg || errorsArray[0]?.message;
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        message: firstMsg ? `Validation failed: ${firstMsg}` : 'Validation failed',
+        errors: errorsArray
       });
     }
 
