@@ -261,6 +261,7 @@ router.post('/requirement-file', authenticateToken, upload.single('file'), async
     }
 
     const isImage = req.file.mimetype.startsWith('image/');
+    const isPdf = req.file.mimetype === 'application/pdf';
     const uploadOptions = {
       folder: `groupo-requirements/${userId}`,
       resource_type: isImage ? 'image' : 'raw',
@@ -281,10 +282,15 @@ router.post('/requirement-file', authenticateToken, upload.single('file'), async
 
     const result = await uploadToCloudinary(req.file.buffer, uploadOptions);
 
+    let fileUrl = result.secure_url;
+    if (isPdf && !/\.pdf($|\?)/i.test(fileUrl)) {
+      fileUrl = `${fileUrl}.pdf`;
+    }
+
     return res.status(200).json({
       success: true,
       data: {
-        url: result.secure_url,
+        url: fileUrl,
         publicId: result.public_id,
         mimeType: req.file.mimetype,
         originalName: req.file.originalname,
