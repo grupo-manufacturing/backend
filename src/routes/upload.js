@@ -238,9 +238,8 @@ router.post('/requirement-file', authenticateToken, upload.single('file'), async
     }
 
     const { userId, role } = req.user;
-
-    const allowedRequirementTypes = [
-      'application/pdf',
+    const mimeType = req.file.mimetype;
+    const allowedImageTypes = [
       'image/jpeg',
       'image/jpg',
       'image/png',
@@ -252,19 +251,33 @@ router.post('/requirement-file', authenticateToken, upload.single('file'), async
       'image/bmp',
       'image/tiff'
     ];
+    const allowedPdfTypes = ['application/pdf'];
+    const allowedRequirementTypes = [...allowedImageTypes, ...allowedPdfTypes];
 
-    if (!allowedRequirementTypes.includes(req.file.mimetype)) {
+    if (!allowedRequirementTypes.includes(mimeType)) {
       return res.status(400).json({
         success: false,
         message: 'Only PDF and image files are allowed for requirement uploads'
       });
     }
 
-    const isImage = req.file.mimetype.startsWith('image/');
-    const isPdf = req.file.mimetype === 'application/pdf';
+    const isImage = allowedImageTypes.includes(mimeType);
+    const isPdf = allowedPdfTypes.includes(mimeType);
+
+    const baseName = req.file.originalname
+      .replace(/\.[^/.]+$/, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || `file-${Date.now()}`;
+
     const uploadOptions = {
       folder: `groupo-requirements/${userId}`,
-      resource_type: isImage ? 'image' : 'raw',
+      // Let Cloudinary infer the best storage type (image/raw) from file content.
+      resource_type: 'auto',
+      public_id: `${Date.now()}-${baseName}`,
+      use_filename: false,
+      unique_filename: false,
       context: {
         userId,
         role,
@@ -281,20 +294,18 @@ router.post('/requirement-file', authenticateToken, upload.single('file'), async
     }
 
     const result = await uploadToCloudinary(req.file.buffer, uploadOptions);
-
-    let fileUrl = result.secure_url;
-    if (isPdf && !/\.pdf($|\?)/i.test(fileUrl)) {
-      fileUrl = `${fileUrl}.pdf`;
+    if (!result?.secure_url || !result?.public_id) {
+      throw new Error('Cloudinary did not return a valid file URL');
     }
 
     return res.status(200).json({
       success: true,
       data: {
-        url: fileUrl,
+        url: result.secure_url,
         publicId: result.public_id,
-        mimeType: req.file.mimetype,
+        mimeType,
         originalName: req.file.originalname,
-        size: result.bytes,
+        size: result.bytes ?? req.file.size,
         fileType: isImage ? 'image' : 'pdf',
         resourceType: result.resource_type
       }
