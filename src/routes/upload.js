@@ -227,6 +227,81 @@ router.post('/multiple', authenticateToken, upload.array('files', 5), async (req
   }
 });
 
+// POST /upload/requirement-file
+router.post('/requirement-file', authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded'
+      });
+    }
+
+    const { userId, role } = req.user;
+
+    const allowedRequirementTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/heic',
+      'image/heif',
+      'image/svg+xml',
+      'image/bmp',
+      'image/tiff'
+    ];
+
+    if (!allowedRequirementTypes.includes(req.file.mimetype)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only PDF and image files are allowed for requirement uploads'
+      });
+    }
+
+    const isImage = req.file.mimetype.startsWith('image/');
+    const uploadOptions = {
+      folder: `groupo-requirements/${userId}`,
+      resource_type: isImage ? 'image' : 'raw',
+      context: {
+        userId,
+        role,
+        uploadType: 'requirement-file',
+        originalName: req.file.originalname
+      },
+      tags: ['requirement', role, isImage ? 'image' : 'pdf']
+    };
+
+    if (isImage) {
+      uploadOptions.transformation = [
+        { quality: 'auto', fetch_format: 'auto' }
+      ];
+    }
+
+    const result = await uploadToCloudinary(req.file.buffer, uploadOptions);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        url: result.secure_url,
+        publicId: result.public_id,
+        mimeType: req.file.mimetype,
+        originalName: req.file.originalname,
+        size: result.bytes,
+        fileType: isImage ? 'image' : 'pdf',
+        resourceType: result.resource_type
+      }
+    });
+  } catch (error) {
+    console.error('Requirement file upload error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to upload requirement file'
+    });
+  }
+});
+
 // POST /upload/ai-design-image (Buyer only)
 router.post('/ai-design-image', authenticateToken, async (req, res) => {
   try {

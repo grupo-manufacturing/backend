@@ -1,11 +1,3 @@
-/**
- * WhatsApp Notification Service
- * Uses WASender API to send WhatsApp messages
- * 
- * API Documentation: https://wasenderapi.com
- * Postman Collection: https://github.com/wasenderapi/wasenderapi-postman
- */
-
 const axios = require('axios');
 
 class WhatsAppService {
