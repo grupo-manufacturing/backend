@@ -185,16 +185,14 @@ class AuthService {
           // Create new manufacturer profile
           const profileData = {
             phone_number: phoneNumber,
-            is_verified: true
+            // New manufacturers must be manually approved from admin panel
+            is_verified: false
           };
           profile = await databaseService.createManufacturerProfile(profileData);
           console.log(`New manufacturer profile created: ${phoneNumber}`);
         } else {
-          // Update existing manufacturer profile
-          await databaseService.updateManufacturerProfileByPhone(phoneNumber, {
-            is_verified: true
-          });
-          console.log(`Existing manufacturer profile verified: ${phoneNumber}`);
+          // Preserve existing verification status (admin-controlled)
+          console.log(`Existing manufacturer profile found: ${phoneNumber}`);
         }
       } else if (role === 'admin') {
         // For admin, we don't create a profile but still need a user ID for JWT
@@ -392,7 +390,8 @@ class AuthService {
     try {
       const profileData = {
         phone_number: phoneNumber,
-        is_verified: true
+        // Keep verification disabled until admin approval
+        is_verified: false
       };
       return await databaseService.createManufacturerProfile(profileData);
     } catch (error) {
