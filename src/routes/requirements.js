@@ -6,6 +6,7 @@ const whatsappService = require('../services/whatsappService');
 const { authenticateToken } = require('../middleware/auth');
 
 let io = null;
+const MIN_REQUIREMENT_QUANTITY = 30;
 
 router.setIo = (socketIo) => {
   io = socketIo;
@@ -80,8 +81,8 @@ const validateCreateRequirement = [
   body('quantity')
     .notEmpty()
     .withMessage('Quantity is required')
-    .isInt({ min: 1 })
-    .withMessage('Quantity must be a positive integer'),
+    .isInt({ min: MIN_REQUIREMENT_QUANTITY })
+    .withMessage(`Quantity must be at least ${MIN_REQUIREMENT_QUANTITY}`),
   body('requirement_text')
     .optional({ checkFalsy: true })
     .trim()
@@ -132,7 +133,7 @@ router.post('/', authenticateToken, validateCreateRequirement, async (req, res) 
     const requirementData = {
       buyer_id: req.user.userId,
       product_type: product_type.trim(), // Required - validated
-      quantity: parseInt(quantity), // Required - validated as positive integer
+      quantity: parseInt(quantity, 10), // Required - validated as minimum quantity integer
       requirement_text: requirement_text && requirement_text.trim().length > 0 ? requirement_text.trim() : null,
       product_link: product_link && product_link.trim().length > 0 ? product_link.trim() : null,
       image_url: image_url && image_url.trim().length > 0 ? image_url.trim() : null,
@@ -399,7 +400,20 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (requirement_text !== undefined) {
       updateData.requirement_text = requirement_text && requirement_text.trim().length > 0 ? requirement_text.trim() : null;
     }
-    if (quantity !== undefined) updateData.quantity = quantity ? parseInt(quantity) : null;
+    if (quantity !== undefined) {
+      if (quantity === null || quantity === '') {
+        updateData.quantity = null;
+      } else {
+        const parsedQuantity = parseInt(quantity, 10);
+        if (Number.isNaN(parsedQuantity) || parsedQuantity < MIN_REQUIREMENT_QUANTITY) {
+          return res.status(400).json({
+            success: false,
+            message: `Quantity must be at least ${MIN_REQUIREMENT_QUANTITY}`
+          });
+        }
+        updateData.quantity = parsedQuantity;
+      }
+    }
     if (product_type !== undefined) updateData.product_type = product_type ? product_type.trim() : null;
     if (product_link !== undefined) updateData.product_link = product_link ? product_link.trim() : null;
     if (image_url !== undefined) updateData.image_url = image_url ? image_url.trim() : null;
