@@ -273,10 +273,10 @@ class ConversationRepository {
   /**
    * Get messages with attachments
    * @param {string} conversationId - Conversation ID
-   * @param {Object} options - Query options (before, limit, requirementId)
+   * @param {Object} options - Query options (before, limit, requirementId, normalOnly)
    * @returns {Promise<Array>} Array of messages with attachments
    */
-  async listMessagesWithAttachments(conversationId, { before, limit = 50, requirementId = null } = {}) {
+  async listMessagesWithAttachments(conversationId, { before, limit = 50, requirementId = null, normalOnly = false } = {}) {
     try {
       let query = supabase
         .from('messages')
@@ -295,6 +295,9 @@ class ConversationRepository {
       // Filter by requirement_id if provided
       if (requirementId) {
         query = query.eq('requirement_id', requirementId);
+      } else if (normalOnly) {
+        // Get only "normal" messages (where requirement_id is null)
+        query = query.is('requirement_id', null);
       }
       
       const { data, error } = await query;
