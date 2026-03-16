@@ -18,8 +18,6 @@ const buyerRoutes = require('./routes/buyers');
 const chatRoutes = require('./routes/chat');
 const uploadRoutes = require('./routes/upload');
 const requirementsRoutes = require('./routes/requirements');
-const aiDesignsRoutes = require('./routes/aiDesigns');
-const aiDesignResponsesRoutes = require('./routes/aiDesignResponses');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -102,15 +100,13 @@ app.use('/api/buyers', buyerRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/requirements', requirementsRoutes);
-app.use('/api/ai-designs', aiDesignsRoutes);
-app.use('/api/ai-design-responses', aiDesignResponsesRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
     message: 'Welcome to Groupo Backend API! 🚀',
     version: '1.0.0',
-    description: 'One-Stop AI Manufacturing Platform Backend',
+    description: 'Manufacturing platform backend',
     timestamp: new Date().toISOString(),
     endpoints: {
       auth: '/api/auth',
@@ -118,8 +114,6 @@ app.get('/', (req, res) => {
       buyers: '/api/buyers',
       chat: '/api/chat',
       requirements: '/api/requirements',
-      aiDesigns: '/api/ai-designs',
-      aiDesignResponses: '/api/ai-design-responses',
       upload: '/api/upload',
       health: '/health'
     }
@@ -143,8 +137,6 @@ io.use(socketAuth);
 
 // Pass io instance to routes for real-time updates
 requirementsRoutes.setIo(io);
-aiDesignsRoutes.setIo(io);
-aiDesignResponsesRoutes.setIo(io);
 
 io.on('connection', async (socket) => {
   try {
@@ -162,7 +154,7 @@ io.on('connection', async (socket) => {
     socket.emit('presence', { userId, online: true });
 
     // message:send
-    socket.on('message:send', async ({ conversationId, body, clientTempId, attachments, requirementId, aiDesignId }) => {
+    socket.on('message:send', async ({ conversationId, body, clientTempId, attachments, requirementId }) => {
       try {
         if (!conversationId) return;
         
@@ -179,7 +171,7 @@ io.on('connection', async (socket) => {
 
         const sanitized = hasBody ? (typeof body === 'string' ? body.replace(/<[^>]*>/g, '') : '').slice(0, 4000) : '';
         const summaryText = buildMessageSummary(sanitized, hasAttachments ? attachments : []);
-        const message = await databaseService.insertMessage(conversationId, role, userId, sanitized, clientTempId || null, summaryText, requirementId || null, aiDesignId || null);
+        const message = await databaseService.insertMessage(conversationId, role, userId, sanitized, clientTempId || null, summaryText, requirementId || null);
 
         // Insert attachments if any
         let messageAttachments = [];

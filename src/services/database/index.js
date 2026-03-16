@@ -11,7 +11,6 @@ const ManufacturerRepository = require('./ManufacturerRepository');
 const ConversationRepository = require('./ConversationRepository');
 const RequirementRepository = require('./RequirementRepository');
 const OrderRepository = require('./OrderRepository');
-const AIDesignRepository = require('./AIDesignRepository');
 
 // Create a unified database service object that combines all repositories
 const DatabaseService = {
@@ -92,28 +91,6 @@ const DatabaseService = {
   updateOrderStatus: (...args) => OrderRepository.updateOrderStatus(...args),
   getOrders: (...args) => OrderRepository.getOrders(...args),
 
-  // =============================================
-  // AI DESIGN METHODS
-  // =============================================
-  createAIDesign: (...args) => AIDesignRepository.createAIDesign(...args),
-  getBuyerAIDesigns: (...args) => AIDesignRepository.getBuyerAIDesigns(...args),
-  getAllAIDesigns: (...args) => AIDesignRepository.getAllAIDesigns(...args),
-  getAIDesign: (...args) => AIDesignRepository.getAIDesign(...args),
-  updateAIDesign: (...args) => AIDesignRepository.updateAIDesign(...args),
-  deleteAIDesign: (...args) => AIDesignRepository.deleteAIDesign(...args),
-  getTodayDesignGenerationCount: (...args) => AIDesignRepository.getTodayDesignGenerationCount(...args),
-  incrementDesignGenerationCount: (...args) => AIDesignRepository.incrementDesignGenerationCount(...args),
-
-  // =============================================
-  // AI DESIGN RESPONSE METHODS
-  // =============================================
-  createAIDesignResponse: (...args) => AIDesignRepository.createAIDesignResponse(...args),
-  getAIDesignResponse: (...args) => AIDesignRepository.getAIDesignResponse(...args),
-  updateAIDesignResponse: (...args) => AIDesignRepository.updateAIDesignResponse(...args),
-  getAIDesignResponses: (...args) => AIDesignRepository.getAIDesignResponses(...args),
-  getAIDesignResponsesBatch: (...args) => AIDesignRepository.getAIDesignResponsesBatch(...args),
-  getBuyerAIDesignResponses: (...args) => AIDesignRepository.getBuyerAIDesignResponses(...args),
-  getAcceptedAIDesignsForConversation: (...args) => AIDesignRepository.getAcceptedAIDesignsForConversation(...args),
 };
 
 // Also export individual repositories for direct access if needed
@@ -126,5 +103,4 @@ module.exports.ManufacturerRepository = ManufacturerRepository;
 module.exports.ConversationRepository = ConversationRepository;
 module.exports.RequirementRepository = RequirementRepository;
 module.exports.OrderRepository = OrderRepository;
-module.exports.AIDesignRepository = AIDesignRepository;
 

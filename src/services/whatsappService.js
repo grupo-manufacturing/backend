@@ -211,67 +211,6 @@ https://grupo.in/manufacturer-portal`;
     return this.sendMessage(phoneNumber, message);
   }
 
-  /**
-   * Send notification for new AI design (to manufacturers)
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {object} aiDesign - AI Design details
-   * @returns {Promise<{success: boolean, error?: string}>}
-   */
-  async notifyNewAIDesign(phoneNumber, aiDesign) {
-    const message = `🎨 *New AI Design Published on Grupo!*
-
-A buyer has published an AI-generated design:
-👕 Type: ${aiDesign.apparel_type || 'Apparel'}
-${aiDesign.quantity ? `📊 Quantity: ${aiDesign.quantity.toLocaleString()}` : ''}
-${aiDesign.preferred_colors ? `🎨 Colors: ${aiDesign.preferred_colors}` : ''}
-
-Login to your Grupo manufacturer portal to view the design and submit a quote!
-https://grupo.in/manufacturer-portal`;
-
-    return this.sendMessage(phoneNumber, message);
-  }
-
-  /**
-   * Send notification for new AI design response (to buyers)
-   * @param {string} phoneNumber - Buyer phone number
-   * @param {object} response - Response details
-   * @param {object} manufacturer - Manufacturer details
-   * @returns {Promise<{success: boolean, error?: string}>}
-   */
-  async notifyNewAIDesignResponse(phoneNumber, response, manufacturer) {
-    const message = `🎉 *New Quote for Your AI Design!*
-
-${manufacturer?.unit_name || 'A manufacturer'} has quoted on your AI design!
-
-Login to your Grupo buyer portal to review and respond!
-https://grupo.in/buyer-portal`;
-
-    return this.sendMessage(phoneNumber, message);
-  }
-
-  /**
-   * Send notification for AI design response status update (to manufacturers)
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {string} status - New status (accepted, rejected)
-   * @param {object} aiDesign - AI Design details
-   * @returns {Promise<{success: boolean, error?: string}>}
-   */
-  async notifyAIDesignResponseStatusUpdate(phoneNumber, status, aiDesign) {
-    const statusEmoji = status === 'accepted' ? '✅' : '❌';
-    const statusText = status === 'accepted' ? 'Accepted' : 'Rejected';
-    
-    const message = `${statusEmoji} *AI Design Quote ${statusText}!*
-
-Your quote for the "${aiDesign?.apparel_type || 'AI design'}" has been ${status}.
-
-${status === 'accepted' ? 'Congratulations! The buyer has accepted your quote. You can now start chatting to finalize details.' : ''}
-
-Login to your Grupo manufacturer portal for more details!
-https://grupo.in/manufacturer-portal`;
-
-    return this.sendMessage(phoneNumber, message);
-  }
-
 }
 
 // Export singleton instance

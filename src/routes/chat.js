@@ -145,56 +145,12 @@ router.get('/conversations/:id/messages/requirement/:requirementId', [
   }
 });
 
-// GET /conversations/:id/messages/ai-design/:aiDesignId - Get messages for specific AI design
-router.get('/conversations/:id/messages/ai-design/:aiDesignId', [
-  param('id').isUUID(),
-  param('aiDesignId').isUUID(),
-  query('before').optional().isISO8601(),
-  query('limit').optional().isInt({ min: 1, max: 200 })
-], authenticateToken, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-    }
-
-    const conversationId = req.params.id;
-    const aiDesignId = req.params.aiDesignId;
-    const before = req.query.before;
-    // Enforce maximum limit for messages
-    const MAX_MESSAGE_LIMIT = 200;
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || 50, 1), // At least 1, default 50
-      MAX_MESSAGE_LIMIT // Maximum 200
-    );
-
-    const convo = await databaseService.getConversation(conversationId);
-    const { userId, role } = req.user;
-
-    if (!convo || !((role === 'buyer' && convo.buyer_id === userId) || (role === 'manufacturer' && convo.manufacturer_id === userId))) {
-      return res.status(403).json({ success: false, message: 'Not authorized to view this conversation' });
-    }
-
-    const messages = await databaseService.listMessagesWithAttachments(conversationId, { before, limit, aiDesignId });
-    
-    return res.status(200).json({ 
-      success: true, 
-      data: { messages },
-      count: messages.length 
-    });
-  } catch (error) {
-    console.error('List messages by AI design error:', error);
-    return res.status(400).json({ success: false, message: error.message || 'Failed to list messages' });
-  }
-});
-
 // GET /conversations/:id/messages - Paginate history
 router.get('/conversations/:id/messages', [
   param('id').isUUID(),
   query('before').optional().isISO8601(),
   query('limit').optional().isInt({ min: 1, max: 100 }),
-  query('requirementId').optional().isUUID(),
-  query('aiDesignId').optional().isUUID()
+  query('requirementId').optional().isUUID()
 ], authenticateToken, async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -211,7 +167,6 @@ router.get('/conversations/:id/messages', [
       MAX_MESSAGE_LIMIT // Maximum 100
     );
     const requirementId = req.query.requirementId || null;
-    const aiDesignId = req.query.aiDesignId || null;
 
     const convo = await databaseService.getConversation(conversationId);
     const { userId, role } = req.user;
@@ -220,7 +175,7 @@ router.get('/conversations/:id/messages', [
       return res.status(403).json({ success: false, message: 'Not authorized to view this conversation' });
     }
 
-    const messages = await databaseService.listMessagesWithAttachments(conversationId, { before, limit, requirementId, aiDesignId });
+    const messages = await databaseService.listMessagesWithAttachments(conversationId, { before, limit, requirementId });
     res.status(200).json({ success: true, data: { messages } });
   } catch (error) {
     console.error('List messages error:', error);
@@ -234,8 +189,7 @@ router.post('/conversations/:id/messages', [
   body('body').optional().isString().isLength({ max: 4000 }),
   body('clientTempId').optional().isString().isLength({ max: 64 }),
   body('attachments').optional().isArray(),
-  body('requirementId').optional().isUUID(),
-  body('aiDesignId').optional().isUUID()
+  body('requirementId').optional().isUUID()
 ], authenticateToken, async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -261,8 +215,7 @@ router.post('/conversations/:id/messages', [
     const cleanBody = hasBody ? sanitizeBody(req.body.body) : '';
     const summaryText = buildMessageSummary(cleanBody, hasAttachments ? req.body.attachments : []);
     const requirementId = req.body.requirementId || null;
-    const aiDesignId = req.body.aiDesignId || null;
-    const message = await databaseService.insertMessage(conversationId, role, userId, cleanBody, req.body.clientTempId || null, summaryText, requirementId, aiDesignId);
+    const message = await databaseService.insertMessage(conversationId, role, userId, cleanBody, req.body.clientTempId || null, summaryText, requirementId);
 
     let attachments = [];
     if (hasAttachments) {

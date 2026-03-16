@@ -466,16 +466,6 @@ router.get('/buyer-profile', async (req, res) => {
 
     const fullProfile = await authService.getBuyerProfile(profile.id);
 
-    const databaseService = require('../services/databaseService');
-    const designCount = await databaseService.getTodayDesignGenerationCount(profile.id);
-    const DAILY_LIMIT = 5;
-    const designGenerationStatus = {
-      count: designCount,
-      remaining: Math.max(0, DAILY_LIMIT - designCount),
-      limit: DAILY_LIMIT,
-      canGenerate: designCount < DAILY_LIMIT
-    };
-
     res.status(200).json({
       success: true,
       message: 'Profile retrieved successfully',
@@ -485,8 +475,7 @@ router.get('/buyer-profile', async (req, res) => {
           email: '',
           phone_number: profile.phone_number,
           business_address: ''
-        },
-        designGenerationStatus
+        }
       }
     });
   } catch (error) {
@@ -500,138 +489,6 @@ router.get('/buyer-profile', async (req, res) => {
     res.status(400).json({
       success: false,
       message: error.message || 'Failed to get profile'
-    });
-  }
-});
-
-// GET /api/auth/buyer-profile/design-generation-status
-router.get('/buyer-profile/design-generation-status', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
-
-    if (decoded.role !== 'buyer') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only buyers can check design generation status'
-      });
-    }
-
-    const profile = await authService.getProfileByPhone(decoded.phoneNumber, decoded.role);
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
-      });
-    }
-
-    const databaseService = require('../services/databaseService');
-    const DAILY_LIMIT = 5;
-    const count = await databaseService.getTodayDesignGenerationCount(profile.id);
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        count,
-        remaining: Math.max(0, DAILY_LIMIT - count),
-        limit: DAILY_LIMIT,
-        canGenerate: count < DAILY_LIMIT
-      }
-    });
-  } catch (error) {
-    console.error('Get design generation status error:', error);
-    if (error.message === 'Invalid or expired token') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to get design generation status',
-      error: error.message
-    });
-  }
-});
-
-// POST /api/auth/buyer-profile/increment-design-generation
-router.post('/buyer-profile/increment-design-generation', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
-
-    if (decoded.role !== 'buyer') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only buyers can increment design generation count'
-      });
-    }
-
-    const profile = await authService.getProfileByPhone(decoded.phoneNumber, decoded.role);
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
-      });
-    }
-
-    const databaseService = require('../services/databaseService');
-    const DAILY_LIMIT = 5;
-    
-    const currentCount = await databaseService.getTodayDesignGenerationCount(profile.id);
-    if (currentCount >= DAILY_LIMIT) {
-      return res.status(429).json({
-        success: false,
-        message: `Daily limit of ${DAILY_LIMIT} designs reached. Please try again tomorrow.`,
-        data: {
-          count: currentCount,
-          remaining: 0,
-          limit: DAILY_LIMIT,
-          canGenerate: false
-        }
-      });
-    }
-
-    const newCount = await databaseService.incrementDesignGenerationCount(profile.id);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Design generation count incremented',
-      data: {
-        count: newCount,
-        remaining: Math.max(0, DAILY_LIMIT - newCount),
-        limit: DAILY_LIMIT,
-        canGenerate: newCount < DAILY_LIMIT
-      }
-    });
-  } catch (error) {
-    console.error('Increment design generation count error:', error);
-    if (error.message === 'Invalid or expired token') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to increment design generation count',
-      error: error.message
     });
   }
 });

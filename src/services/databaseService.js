@@ -11,7 +11,6 @@
  * - database/ConversationRepository.js - Conversations & Messages
  * - database/RequirementRepository.js  - Requirements & Requirement responses
  * - database/OrderRepository.js        - Orders
- * - database/AIDesignRepository.js     - AI Designs & AI Design responses
  */
 
 module.exports = require('./database');

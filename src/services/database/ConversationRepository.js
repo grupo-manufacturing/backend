@@ -188,7 +188,7 @@ class ConversationRepository {
   /**
    * Insert a new message and update conversation summary
    */
-  async insertMessage(conversationId, senderRole, senderId, body, clientTempId, summaryText, requirementId = null, aiDesignId = null) {
+  async insertMessage(conversationId, senderRole, senderId, body, clientTempId, summaryText, requirementId = null) {
     try {
       const messageData = {
         conversation_id: conversationId,
@@ -202,10 +202,6 @@ class ConversationRepository {
         messageData.requirement_id = requirementId;
       }
       
-      if (aiDesignId) {
-        messageData.ai_design_id = aiDesignId;
-      }
-
       const { data, error } = await supabase
         .from('messages')
         .insert([messageData])
@@ -280,7 +276,7 @@ class ConversationRepository {
    * @param {Object} options - Query options (before, limit, requirementId)
    * @returns {Promise<Array>} Array of messages with attachments
    */
-  async listMessagesWithAttachments(conversationId, { before, limit = 50, requirementId = null, aiDesignId = null } = {}) {
+  async listMessagesWithAttachments(conversationId, { before, limit = 50, requirementId = null } = {}) {
     try {
       let query = supabase
         .from('messages')
@@ -301,11 +297,6 @@ class ConversationRepository {
         query = query.eq('requirement_id', requirementId);
       }
       
-      // Filter by ai_design_id if provided
-      if (aiDesignId) {
-        query = query.eq('ai_design_id', aiDesignId);
-      }
-
       const { data, error } = await query;
       if (error) {
         throw new Error(`Failed to list messages with attachments: ${error.message}`);

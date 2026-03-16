@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS messages (
   sender_id UUID NOT NULL,
   body TEXT NOT NULL,
   requirement_id UUID REFERENCES requirements(id) ON DELETE SET NULL,
-  ai_design_id UUID REFERENCES ai_designs(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   is_read BOOLEAN DEFAULT FALSE,
   client_temp_id VARCHAR(64)
@@ -129,40 +128,6 @@ CREATE TABLE IF NOT EXISTS requirement_responses (
 );
 
 -- ===========================================
--- AI DESIGNS TABLES
--- ===========================================
-
-CREATE TABLE IF NOT EXISTS ai_designs (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  buyer_id UUID NOT NULL REFERENCES buyer_profiles(id) ON DELETE CASCADE,
-  design_no VARCHAR(50) UNIQUE NOT NULL,
-  apparel_type VARCHAR(255) NOT NULL,
-  design_description TEXT,
-  image_url TEXT NOT NULL,
-  quantity INTEGER NOT NULL,
-  preferred_colors TEXT,
-  print_placement VARCHAR(255),
-  status VARCHAR(20) DEFAULT 'published' CHECK (status IN ('published', 'draft', 'archived')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS ai_design_responses (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  ai_design_id UUID NOT NULL REFERENCES ai_designs(id) ON DELETE CASCADE,
-  manufacturer_id UUID NOT NULL REFERENCES manufacturer_profiles(id) ON DELETE CASCADE,
-  price_per_unit DECIMAL(10, 2) NOT NULL,
-  quantity INTEGER NOT NULL,
-  gst DECIMAL(10, 2) NOT NULL DEFAULT 0,
-  platform_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
-  quoted_price DECIMAL(10, 2) NOT NULL,
-  status VARCHAR(20) DEFAULT 'submitted' CHECK (status IN ('submitted', 'accepted', 'rejected', 'negotiating')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  CONSTRAINT uq_ai_design_manufacturer UNIQUE (ai_design_id, manufacturer_id)
-);
-
--- ===========================================
 -- INDEXES
 -- ===========================================
 
@@ -192,7 +157,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(is_read);
 CREATE INDEX IF NOT EXISTS idx_messages_requirement_id ON messages(requirement_id);
-CREATE INDEX IF NOT EXISTS idx_messages_ai_design_id ON messages(ai_design_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id);
 -- Composite indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at DESC);
@@ -215,25 +179,6 @@ CREATE INDEX IF NOT EXISTS idx_requirement_responses_created_at ON requirement_r
 CREATE INDEX IF NOT EXISTS idx_requirement_responses_manufacturer_status ON requirement_responses(manufacturer_id, status);
 CREATE INDEX IF NOT EXISTS idx_requirement_responses_requirement_status ON requirement_responses(requirement_id, status);
 CREATE INDEX IF NOT EXISTS idx_requirement_responses_status_manufacturer ON requirement_responses(status, manufacturer_id);
-
--- AI Designs indexes
-CREATE INDEX IF NOT EXISTS idx_ai_designs_buyer_id ON ai_designs(buyer_id);
-CREATE INDEX IF NOT EXISTS idx_ai_designs_status ON ai_designs(status);
-CREATE INDEX IF NOT EXISTS idx_ai_designs_created_at ON ai_designs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ai_designs_apparel_type ON ai_designs(apparel_type);
-CREATE INDEX IF NOT EXISTS idx_ai_designs_design_no ON ai_designs(design_no);
-CREATE INDEX IF NOT EXISTS idx_ai_designs_buyer_status ON ai_designs(buyer_id, status);
-CREATE INDEX IF NOT EXISTS idx_ai_designs_buyer_created ON ai_designs(buyer_id, created_at DESC);
-
--- AI Design responses indexes
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_ai_design_id ON ai_design_responses(ai_design_id);
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_manufacturer_id ON ai_design_responses(manufacturer_id);
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_status ON ai_design_responses(status);
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_created_at ON ai_design_responses(created_at DESC);
--- Composite indexes for filtering by manufacturer and status
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_manufacturer_status ON ai_design_responses(manufacturer_id, status);
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_design_status ON ai_design_responses(ai_design_id, status);
-CREATE INDEX IF NOT EXISTS idx_ai_design_responses_status_manufacturer ON ai_design_responses(status, manufacturer_id);
 
 -- ===========================================
 -- FUNCTIONS
@@ -334,31 +279,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION generate_design_no()
-RETURNS TRIGGER AS $$
-DECLARE
-  next_num INTEGER;
-  formatted_no VARCHAR(50);
-  max_new_format INTEGER;
-  max_old_format INTEGER;
-BEGIN
-  SELECT COALESCE(MAX(CAST(SUBSTRING(design_no FROM '(\d+)$') AS INTEGER)), 0)
-  INTO max_new_format
-  FROM ai_designs
-  WHERE design_no LIKE 'GRUPO-AI-%';
-  
-  SELECT COALESCE(MAX(CAST(SUBSTRING(design_no FROM '(\d+)$') AS INTEGER)), 0)
-  INTO max_old_format
-  FROM ai_designs
-  WHERE design_no LIKE 'GROUPO-AI-%';
-  
-  next_num := GREATEST(max_new_format, max_old_format) + 1;
-  formatted_no := 'GRUPO-AI-' || LPAD(next_num::TEXT, 4, '0');
-  NEW.design_no := formatted_no;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 -- ===========================================
 -- TRIGGERS
 -- ===========================================
@@ -371,12 +291,6 @@ CREATE TRIGGER update_requirements_updated_at BEFORE UPDATE ON requirements
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_requirement_responses_updated_at BEFORE UPDATE ON requirement_responses
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_ai_designs_updated_at BEFORE UPDATE ON ai_designs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_ai_design_responses_updated_at BEFORE UPDATE ON ai_design_responses
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER generate_manufacturer_id_trigger
@@ -397,8 +311,3 @@ CREATE TRIGGER generate_requirement_no_trigger
   WHEN (NEW.requirement_no IS NULL)
   EXECUTE FUNCTION generate_requirement_no();
 
-CREATE TRIGGER generate_design_no_trigger
-  BEFORE INSERT ON ai_designs
-  FOR EACH ROW
-  WHEN (NEW.design_no IS NULL)
-  EXECUTE FUNCTION generate_design_no();
