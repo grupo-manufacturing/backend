@@ -68,6 +68,7 @@ const DatabaseService = {
   updateRequirement: (...args) => RequirementRepository.updateRequirement(...args),
   deleteRequirement: (...args) => RequirementRepository.deleteRequirement(...args),
   getBuyerRequirementStatistics: (...args) => RequirementRepository.getBuyerRequirementStatistics(...args),
+  syncRequirementStatusFromResponses: (...args) => RequirementRepository.syncRequirementStatusFromResponses(...args),
   getAllRequirements: (...args) => RequirementRepository.getAllRequirements(...args),
 
   // =============================================
@@ -79,7 +80,7 @@ const DatabaseService = {
   getRequirementResponseById: (...args) => RequirementRepository.getRequirementResponseById(...args),
   updateRequirementResponse: (...args) => RequirementRepository.updateRequirementResponse(...args),
   getManufacturerResponses: (...args) => RequirementRepository.getManufacturerResponses(...args),
-  getNegotiatingRequirementsForConversation: (...args) => RequirementRepository.getNegotiatingRequirementsForConversation(...args),
+  getActiveRequirementsForConversation: (...args) => RequirementRepository.getActiveRequirementsForConversation(...args),
 
   // =============================================
   // ORDER METHODS

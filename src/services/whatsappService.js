@@ -188,13 +188,13 @@ https://grupo.in/buyer-portal`;
   /**
    * Send notification for requirement response status update (to manufacturers)
    * @param {string} phoneNumber - Manufacturer phone number
-   * @param {string} status - New status (accepted, rejected, negotiating)
+   * @param {string} status - New status (accepted, rejected)
    * @param {object} requirement - Requirement details
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   async notifyResponseStatusUpdate(phoneNumber, status, requirement) {
     const statusEmoji = status === 'accepted' ? '✅' : status === 'rejected' ? '❌' : '💬';
-    const statusText = status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : 'In Negotiation';
+    const statusText = status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : String(status);
     
     const requirementIdentifier = requirement?.requirement_no || requirement?.id || 'the requirement';
     
@@ -203,7 +203,6 @@ https://grupo.in/buyer-portal`;
 Your quote for requirement ${requirementIdentifier} has been ${status}.
 
 ${status === 'accepted' ? 'Congratulations! The buyer has accepted your quote. You can now start chatting to finalize details.' : ''}
-${status === 'negotiating' ? 'The buyer wants to negotiate. Check your chats for more details.' : ''}
 
 Login to your Grupo manufacturer portal for more details!
 https://grupo.in/manufacturer-portal`;

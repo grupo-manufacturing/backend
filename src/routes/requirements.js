@@ -137,7 +137,8 @@ router.post('/', authenticateToken, validateCreateRequirement, async (req, res) 
       requirement_text: requirement_text && requirement_text.trim().length > 0 ? requirement_text.trim() : null,
       product_link: product_link && product_link.trim().length > 0 ? product_link.trim() : null,
       image_url: image_url && image_url.trim().length > 0 ? image_url.trim() : null,
-      notes: notes && notes.trim().length > 0 ? notes.trim() : null
+      notes: notes && notes.trim().length > 0 ? notes.trim() : null,
+      status: 'pending'
     };
 
     const requirement = await databaseService.createRequirement(requirementData);
@@ -280,9 +281,10 @@ router.get('/buyer/statistics', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/requirements/conversation/:conversationId/negotiating
+// GET /api/requirements/conversation/:conversationId/active-requirements
+// Requirements with submitted or accepted quotes for this buyer–manufacturer pair (chat requirement tabs)
 // Note: Must come before /:id
-router.get('/conversation/:conversationId/negotiating', authenticateToken, async (req, res) => {
+router.get('/conversation/:conversationId/active-requirements', authenticateToken, async (req, res) => {
   try {
     const { conversationId } = req.params;
     
@@ -304,7 +306,7 @@ router.get('/conversation/:conversationId/negotiating', authenticateToken, async
       });
     }
 
-    const requirements = await databaseService.getNegotiatingRequirementsForConversation(
+    const requirements = await databaseService.getActiveRequirementsForConversation(
       conversation.buyer_id,
       conversation.manufacturer_id
     );
@@ -315,10 +317,10 @@ router.get('/conversation/:conversationId/negotiating', authenticateToken, async
       count: requirements.length
     });
   } catch (error) {
-    console.error('Get negotiating requirements error:', error);
+    console.error('Get active requirements for conversation error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch negotiating requirements',
+      message: 'Failed to fetch active requirements',
       error: error.message
     });
   }
@@ -519,6 +521,7 @@ router.post('/:id/responses', authenticateToken, async (req, res) => {
     };
 
     const response = await databaseService.createRequirementResponse(responseData);
+    await databaseService.syncRequirementStatusFromResponses(requirementId);
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
     
     const enrichedResponse = {
@@ -711,10 +714,10 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
     const { responseId } = req.params;
     const { status } = req.body;
 
-    if (!status || !['accepted', 'rejected', 'negotiating'].includes(status)) {
+    if (!status || !['accepted', 'rejected'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Status must be either "accepted", "rejected", or "negotiating"'
+        message: 'Status must be either "accepted" or "rejected"'
       });
     }
 
@@ -740,6 +743,7 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
     }
 
     const updatedResponse = await databaseService.updateRequirementResponse(responseId, updateData);
+    await databaseService.syncRequirementStatusFromResponses(response.requirement_id);
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
     const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
 

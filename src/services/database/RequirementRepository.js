@@ -43,7 +43,7 @@ class RequirementRepository {
       // Select only fields needed for list view to reduce payload size
       let query = supabase
         .from('requirements')
-        .select('id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link')
+        .select('id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link, status')
         .eq('buyer_id', buyerId);
 
       // Apply sorting
@@ -156,13 +156,38 @@ class RequirementRepository {
   }
 
   /**
+   * Compute aggregate requirement status from response rows (lowercase statuses).
+   * @param {string[]} responseStatuses
+   * @returns {'pending'|'accepted'|'rejected'}
+   */
+  computeRequirementAggregateStatus(responseStatuses) {
+    const statuses = (responseStatuses || []).map(s => (s || '').toLowerCase().trim());
+    if (statuses.length === 0) return 'pending';
+    if (statuses.includes('accepted')) return 'accepted';
+    const allRejected = statuses.every(s => s === 'rejected');
+    if (allRejected) return 'rejected';
+    return 'pending';
+  }
+
+  /**
+   * Recompute and persist requirements.status from all responses for a requirement.
+   * @param {string} requirementId
+   * @returns {Promise<'pending'|'accepted'|'rejected'>}
+   */
+  async syncRequirementStatusFromResponses(requirementId) {
+    const responses = await this.getRequirementResponses(requirementId);
+    const next = this.computeRequirementAggregateStatus(responses.map(r => r.status));
+    await this.updateRequirement(requirementId, { status: next });
+    return next;
+  }
+
+  /**
    * Get buyer requirement statistics
    * @param {string} buyerId - Buyer ID
-   * @returns {Promise<Object>} Statistics object with total, accepted, pending_review, in_negotiation counts
+   * @returns {Promise<Object>} Statistics object with total, accepted, pending, rejected counts
    */
   async getBuyerRequirementStatistics(buyerId) {
     try {
-      // Get total requirements count
       const { count: totalCount, error: totalError } = await supabase
         .from('requirements')
         .select('id', { count: 'exact', head: true })
@@ -172,77 +197,31 @@ class RequirementRepository {
         throw new Error(`Failed to fetch total requirements: ${totalError.message}`);
       }
 
-      // Get all requirements for this buyer
       const { data: requirements, error: requirementsError } = await supabase
         .from('requirements')
-        .select('id')
+        .select('status')
         .eq('buyer_id', buyerId);
 
       if (requirementsError) {
         throw new Error(`Failed to fetch requirements: ${requirementsError.message}`);
       }
 
-      const requirementIds = (requirements || []).map(r => r.id);
-
-      if (requirementIds.length === 0) {
-        return {
-          total: 0,
-          accepted: 0,
-          pending_review: 0,
-          in_negotiation: 0
-        };
-      }
-
-      // Get all responses for these requirements
-      const { data: responses, error: responsesError } = await supabase
-        .from('requirement_responses')
-        .select('requirement_id, status')
-        .in('requirement_id', requirementIds);
-
-      if (responsesError) {
-        throw new Error(`Failed to fetch responses: ${responsesError.message}`);
-      }
-
-      // Group responses by requirement_id
-      const requirementResponseMap = new Map();
-      (responses || []).forEach(response => {
-        if (!requirementResponseMap.has(response.requirement_id)) {
-          requirementResponseMap.set(response.requirement_id, []);
-        }
-        requirementResponseMap.get(response.requirement_id).push(response.status);
-      });
-
-      // Calculate statistics
       let accepted = 0;
-      let in_negotiation = 0;
-      let pending_review = 0;
+      let pending = 0;
+      let rejected = 0;
 
-      requirementIds.forEach(requirementId => {
-        const responseStatuses = requirementResponseMap.get(requirementId) || [];
-        
-        if (responseStatuses.length === 0) {
-          // No responses = pending review
-          pending_review++;
-        } else {
-          // Check if any response is accepted
-          if (responseStatuses.includes('accepted')) {
-            accepted++;
-          }
-          // Check if any response is negotiating
-          else if (responseStatuses.includes('negotiating')) {
-            in_negotiation++;
-          } else {
-            // Has responses but none are accepted or negotiating = pending review
-            pending_review++;
-          }
-        }
+      (requirements || []).forEach(r => {
+        const s = (r.status || 'pending').toLowerCase();
+        if (s === 'accepted') accepted++;
+        else if (s === 'rejected') rejected++;
+        else pending++;
       });
 
       return {
         total: totalCount || 0,
         accepted,
-        pending_review,
-        in_negotiation
+        pending,
+        rejected
       };
     } catch (error) {
       console.error('RequirementRepository.getBuyerRequirementStatistics error:', error);
@@ -261,7 +240,7 @@ class RequirementRepository {
       let query = supabase
         .from('requirements')
         .select(`
-          id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link,
+          id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link, status,
           buyer:buyer_profiles(id, full_name, phone_number, business_address)
         `);
 
@@ -486,15 +465,13 @@ class RequirementRepository {
   }
 
   /**
-   * Get negotiating and accepted requirements for a specific conversation
-   * Returns requirements where status is 'negotiating' or 'accepted' and matches the buyer_id and manufacturer_id
+   * Get active requirement threads for chat (submitted or accepted quotes) for this buyer–manufacturer pair
    * @param {string} buyerId - Buyer ID from conversation
    * @param {string} manufacturerId - Manufacturer ID from conversation
    * @returns {Promise<Array>} Array of requirements with their details
    */
-  async getNegotiatingRequirementsForConversation(buyerId, manufacturerId) {
+  async getActiveRequirementsForConversation(buyerId, manufacturerId) {
     try {
-      // First, get requirement_responses with status 'negotiating' or 'accepted' for this manufacturer
       const { data: responses, error: responsesError } = await supabase
         .from('requirement_responses')
         .select(`
@@ -513,11 +490,11 @@ class RequirementRepository {
             buyer_id
           )
         `)
-        .in('status', ['negotiating', 'accepted'])
+        .in('status', ['submitted', 'accepted'])
         .eq('manufacturer_id', manufacturerId);
 
       if (responsesError) {
-        throw new Error(`Failed to fetch negotiating/accepted requirement responses: ${responsesError.message}`);
+        throw new Error(`Failed to fetch active requirement responses: ${responsesError.message}`);
       }
 
       // Filter to only include requirements where buyer_id matches the conversation's buyer_id
@@ -534,7 +511,7 @@ class RequirementRepository {
 
       return requirements;
     } catch (error) {
-      console.error('RequirementRepository.getNegotiatingRequirementsForConversation (negotiating/accepted) error:', error);
+      console.error('RequirementRepository.getActiveRequirementsForConversation error:', error);
       throw error;
     }
   }
