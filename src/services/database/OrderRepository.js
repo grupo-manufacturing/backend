@@ -99,7 +99,7 @@ class OrderRepository {
           *,
           design:designs(id, product_name, product_category, image_url),
           buyer:buyer_profiles(id, full_name, phone_number, business_address),
-          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number, location)
+          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number)
         `)
         .eq('id', orderId)
         .single();
@@ -128,7 +128,7 @@ class OrderRepository {
         .select(`
           *,
           design:designs(id, product_name, product_category, image_url),
-          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number, location, business_type)
+          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number, business_type)
         `)
         .eq('buyer_id', buyerId);
 
@@ -223,7 +223,7 @@ class OrderRepository {
             created_at,
             buyer:buyer_profiles(id, full_name, phone_number, business_address)
           ),
-          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number, location, business_type)
+          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number, business_type)
         `);
 
       // Apply status filter if provided

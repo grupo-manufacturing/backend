@@ -11,6 +11,7 @@ const ManufacturerRepository = require('./ManufacturerRepository');
 const ConversationRepository = require('./ConversationRepository');
 const RequirementRepository = require('./RequirementRepository');
 const OrderRepository = require('./OrderRepository');
+const PaymentRepository = require('./PaymentRepository');
 
 // Create a unified database service object that combines all repositories
 const DatabaseService = {
@@ -68,7 +69,6 @@ const DatabaseService = {
   updateRequirement: (...args) => RequirementRepository.updateRequirement(...args),
   deleteRequirement: (...args) => RequirementRepository.deleteRequirement(...args),
   getBuyerRequirementStatistics: (...args) => RequirementRepository.getBuyerRequirementStatistics(...args),
-  syncRequirementStatusFromResponses: (...args) => RequirementRepository.syncRequirementStatusFromResponses(...args),
   getAllRequirements: (...args) => RequirementRepository.getAllRequirements(...args),
 
   // =============================================
@@ -92,6 +92,19 @@ const DatabaseService = {
   updateOrderStatus: (...args) => OrderRepository.updateOrderStatus(...args),
   getOrders: (...args) => OrderRepository.getOrders(...args),
 
+  // =============================================
+  // PAYMENT METHODS
+  // =============================================
+  createPayment: (...args) => PaymentRepository.createPayment(...args),
+  getPaymentById: (...args) => PaymentRepository.getPaymentById(...args),
+  getPaymentWithDetails: (...args) => PaymentRepository.getPaymentWithDetails(...args),
+  getPaymentsByResponseId: (...args) => PaymentRepository.getPaymentsByResponseId(...args),
+  getPaymentByResponseAndNumber: (...args) => PaymentRepository.getPaymentByResponseAndNumber(...args),
+  updatePayment: (...args) => PaymentRepository.updatePayment(...args),
+  getPendingVerificationPayments: (...args) => PaymentRepository.getPendingVerificationPayments(...args),
+  getBuyerPayments: (...args) => PaymentRepository.getBuyerPayments(...args),
+  getManufacturerPayments: (...args) => PaymentRepository.getManufacturerPayments(...args),
+
 };
 
 // Also export individual repositories for direct access if needed
@@ -104,4 +117,5 @@ module.exports.ManufacturerRepository = ManufacturerRepository;
 module.exports.ConversationRepository = ConversationRepository;
 module.exports.RequirementRepository = RequirementRepository;
 module.exports.OrderRepository = OrderRepository;
+module.exports.PaymentRepository = PaymentRepository;
 

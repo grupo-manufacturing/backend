@@ -9,6 +9,19 @@ const ADMIN_CREDENTIALS = {
   password: process.env.ADMIN_PASSWORD || '72397admin'
 };
 
+function isManufacturerOnboardingComplete(profile) {
+  if (!profile) return false;
+
+  const hasUnitName = Boolean(profile.unit_name && String(profile.unit_name).trim());
+  const hasBusinessType = Boolean(profile.business_type && String(profile.business_type).trim());
+  const hasGstNumber = Boolean(profile.gst_number && String(profile.gst_number).trim());
+  const hasPanNumber = Boolean(profile.pan_number && String(profile.pan_number).trim());
+  const hasProductTypes = Array.isArray(profile.product_types) && profile.product_types.length > 0;
+  const hasDailyCapacity = Number(profile.daily_capacity || 0) > 0;
+
+  return hasUnitName && hasBusinessType && hasGstNumber && hasPanNumber && hasProductTypes && hasDailyCapacity;
+}
+
 const validatePhoneNumber = [
   body('phoneNumber')
     .isMobilePhone('any')
@@ -214,10 +227,11 @@ router.post('/manufacturer-onboarding', [
   body('unit_name').notEmpty().isLength({ min: 1, max: 255 }).withMessage('Unit name is required'),
   body('business_type').notEmpty().isLength({ min: 1, max: 100 }).withMessage('Business type is required'),
   body('gst_number').notEmpty().isLength({ min: 1, max: 20 }).withMessage('GST number is required'),
+  body('pan_number').notEmpty().isLength({ min: 1, max: 20 }).withMessage('PAN is required'),
+  body('msme_number').optional({ nullable: true, checkFalsy: true }).isLength({ min: 1, max: 50 }),
   body('product_types').isArray({ min: 1 }).withMessage('At least one product type is required'),
   body('capacity').notEmpty().isInt({ min: 1 }).withMessage('Daily capacity is required and must be greater than 0'),
-  body('location').optional().isLength({ min: 1, max: 1000 }),
-  body('manufacturing_unit_image_url').optional().isURL()
+  body('manufacturing_unit_image_url').optional({ nullable: true, checkFalsy: true }).isURL()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -249,9 +263,10 @@ router.post('/manufacturer-onboarding', [
       unit_name: req.body.unit_name,
       business_type: req.body.business_type,
       gst_number: req.body.gst_number,
+      pan_number: req.body.pan_number,
+      msme_number: req.body.msme_number || null,
       product_types: req.body.product_types || [],
       daily_capacity: req.body.capacity || 0,
-      location: req.body.location,
       manufacturing_unit_image_url: req.body.manufacturing_unit_image_url || null
     };
 
@@ -300,19 +315,24 @@ router.get('/manufacturer-profile', async (req, res) => {
     }
 
     const fullProfile = await authService.getManufacturerProfile(profile.id);
+    const normalizedProfile = fullProfile || {
+      phone_number: profile.phone_number,
+      unit_name: '',
+      business_type: '',
+      gst_number: '',
+      pan_number: '',
+      msme_number: '',
+      product_types: [],
+      daily_capacity: 0
+    };
 
     res.status(200).json({
       success: true,
       message: 'Profile retrieved successfully',
       data: {
-        profile: fullProfile || {
-          phone_number: profile.phone_number,
-          unit_name: '',
-          business_type: '',
-          gst_number: '',
-          product_types: [],
-          daily_capacity: 0,
-          location: ''
+        profile: {
+          ...normalizedProfile,
+          onboarding_complete: isManufacturerOnboardingComplete(normalizedProfile)
         }
       }
     });
@@ -330,10 +350,11 @@ router.put('/manufacturer-profile', [
   body('unit_name').optional().isLength({ min: 1, max: 255 }),
   body('business_type').optional().isLength({ min: 1, max: 100 }),
   body('gst_number').optional().isLength({ min: 1, max: 20 }),
+  body('pan_number').optional().isLength({ min: 1, max: 20 }),
+  body('msme_number').optional({ nullable: true, checkFalsy: true }).isLength({ min: 1, max: 50 }),
   body('product_types').optional().isArray(),
   body('daily_capacity').optional().isInt({ min: 0 }),
-  body('location').optional().isLength({ min: 1, max: 1000 }),
-  body('manufacturing_unit_image_url').optional().isURL()
+  body('manufacturing_unit_image_url').optional({ nullable: true, checkFalsy: true }).isURL()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

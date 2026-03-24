@@ -282,7 +282,7 @@ router.get('/buyer/statistics', authenticateToken, async (req, res) => {
 });
 
 // GET /api/requirements/conversation/:conversationId/active-requirements
-// Requirements with submitted or accepted quotes for this buyer–manufacturer pair (chat requirement tabs)
+// All requirements for this buyer-manufacturer pair (chat requirement tabs, no status filter)
 // Note: Must come before /:id
 router.get('/conversation/:conversationId/active-requirements', authenticateToken, async (req, res) => {
   try {
@@ -521,7 +521,6 @@ router.post('/:id/responses', authenticateToken, async (req, res) => {
     };
 
     const response = await databaseService.createRequirementResponse(responseData);
-    await databaseService.syncRequirementStatusFromResponses(requirementId);
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
     
     const enrichedResponse = {
@@ -743,7 +742,7 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
     }
 
     const updatedResponse = await databaseService.updateRequirementResponse(responseId, updateData);
-    await databaseService.syncRequirementStatusFromResponses(response.requirement_id);
+    await databaseService.updateRequirement(response.requirement_id, { status });
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
     const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
 

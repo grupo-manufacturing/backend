@@ -156,32 +156,6 @@ class RequirementRepository {
   }
 
   /**
-   * Compute aggregate requirement status from response rows (lowercase statuses).
-   * @param {string[]} responseStatuses
-   * @returns {'pending'|'accepted'|'rejected'}
-   */
-  computeRequirementAggregateStatus(responseStatuses) {
-    const statuses = (responseStatuses || []).map(s => (s || '').toLowerCase().trim());
-    if (statuses.length === 0) return 'pending';
-    if (statuses.includes('accepted')) return 'accepted';
-    const allRejected = statuses.every(s => s === 'rejected');
-    if (allRejected) return 'rejected';
-    return 'pending';
-  }
-
-  /**
-   * Recompute and persist requirements.status from all responses for a requirement.
-   * @param {string} requirementId
-   * @returns {Promise<'pending'|'accepted'|'rejected'>}
-   */
-  async syncRequirementStatusFromResponses(requirementId) {
-    const responses = await this.getRequirementResponses(requirementId);
-    const next = this.computeRequirementAggregateStatus(responses.map(r => r.status));
-    await this.updateRequirement(requirementId, { status: next });
-    return next;
-  }
-
-  /**
    * Get buyer requirement statistics
    * @param {string} buyerId - Buyer ID
    * @returns {Promise<Object>} Statistics object with total, accepted, pending, rejected counts
@@ -316,7 +290,7 @@ class RequirementRepository {
         .from('requirement_responses')
         .select(`
           *,
-          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, location, business_type)
+          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, business_type)
         `)
         .eq('requirement_id', requirementId)
         .order('created_at', { ascending: false });
@@ -465,7 +439,8 @@ class RequirementRepository {
   }
 
   /**
-   * Get active requirement threads for chat (submitted or accepted quotes) for this buyer–manufacturer pair
+   * Get all requirement threads for chat for a buyer-manufacturer pair.
+   * No status filtering is applied.
    * @param {string} buyerId - Buyer ID from conversation
    * @param {string} manufacturerId - Manufacturer ID from conversation
    * @returns {Promise<Array>} Array of requirements with their details
@@ -490,7 +465,6 @@ class RequirementRepository {
             buyer_id
           )
         `)
-        .in('status', ['submitted', 'accepted'])
         .eq('manufacturer_id', manufacturerId);
 
       if (responsesError) {

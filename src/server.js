@@ -18,6 +18,9 @@ const buyerRoutes = require('./routes/buyers');
 const chatRoutes = require('./routes/chat');
 const uploadRoutes = require('./routes/upload');
 const requirementsRoutes = require('./routes/requirements');
+const paymentsRoutes = require('./routes/payments');
+const milestonesRoutes = require('./routes/milestones');
+const ordersRoutes = require('./routes/orders');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -100,6 +103,9 @@ app.use('/api/buyers', buyerRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/requirements', requirementsRoutes);
+app.use('/api/payments', paymentsRoutes);
+app.use('/api/milestones', milestonesRoutes);
+app.use('/api/orders', ordersRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -114,6 +120,9 @@ app.get('/', (req, res) => {
       buyers: '/api/buyers',
       chat: '/api/chat',
       requirements: '/api/requirements',
+      payments: '/api/payments',
+      milestones: '/api/milestones',
+      orders: '/api/orders',
       upload: '/api/upload',
       health: '/health'
     }
@@ -137,6 +146,9 @@ io.use(socketAuth);
 
 // Pass io instance to routes for real-time updates
 requirementsRoutes.setIo(io);
+paymentsRoutes.setIo(io);
+milestonesRoutes.setIo(io);
+ordersRoutes.setIo(io);
 
 io.on('connection', async (socket) => {
   try {

@@ -56,7 +56,7 @@ class ConversationRepository {
    * List conversations for a user based on role
    * Optimized to avoid N+1 queries by using batch queries instead of individual queries per conversation
    */
-  async listConversations(userId, role, { search, limit = 50, cursor, offset = 0 } = {}) {
+  async listConversations(userId, role, { limit = 50, offset = 0 } = {}) {
     try {
       // Build the main query - select only fields needed for list view to reduce payload size
       let query = supabase
@@ -71,14 +71,6 @@ class ConversationRepository {
         query = query.eq('buyer_id', userId);
       } else if (role === 'manufacturer') {
         query = query.eq('manufacturer_id', userId);
-      }
-
-      if (cursor) {
-        query = query.lt('last_message_at', cursor);
-      }
-
-      if (search && typeof search === 'string' && search.trim().length > 0) {
-        query = query.ilike('last_message_text', `%${search.trim()}%`);
       }
 
       const { data, error } = await query;
