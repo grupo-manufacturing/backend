@@ -334,9 +334,14 @@ router.post('/submit-utr', authenticateToken, async (req, res) => {
       paid_at: new Date().toISOString()
     });
 
-    // Note: We don't update requirement_response.status here anymore.
-    // The payment state is tracked in the payments table.
-    // requirement_response.status is only updated after admin verifies the payment.
+    // Requirement-level lifecycle is intentionally simple:
+    // pending -> accepted on first UTR submit, rejected on buyer rejection only.
+    if (updatedPayment.payment_number === 1) {
+      const response = await databaseService.getRequirementResponseById(updatedPayment.requirement_response_id);
+      if (response?.requirement_id) {
+        await databaseService.updateRequirement(response.requirement_id, { status: 'accepted' });
+      }
+    }
 
     // Notify admin via socket (if connected)
     if (io) {

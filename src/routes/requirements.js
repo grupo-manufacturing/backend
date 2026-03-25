@@ -720,6 +720,13 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
       });
     }
 
+    if (status === 'accepted') {
+      return res.status(400).json({
+        success: false,
+        message: 'Use Accept & Pay flow. Requirement status changes to accepted only after UTR submission.'
+      });
+    }
+
     const response = await databaseService.getRequirementResponseById(responseId);
     if (!response) {
       return res.status(404).json({
@@ -736,13 +743,10 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
       });
     }
 
-    let updateData = { status };
-    if (status === 'accepted') {
-      updateData.accepted_at = new Date().toISOString();
-    }
+    const updateData = { status };
 
     const updatedResponse = await databaseService.updateRequirementResponse(responseId, updateData);
-    await databaseService.updateRequirement(response.requirement_id, { status });
+    await databaseService.updateRequirement(response.requirement_id, { status: 'rejected' });
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
     const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
 
