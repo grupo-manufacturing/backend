@@ -218,6 +218,7 @@ class OrderRepository {
             id,
             requirement_no,
             requirement_text,
+            status,
             quantity,
             product_type,
             created_at,
