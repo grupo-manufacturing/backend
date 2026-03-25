@@ -198,11 +198,9 @@ https://grupo.in/buyer-portal`;
     
     const requirementIdentifier = requirement?.requirement_no || requirement?.id || 'the requirement';
     
-    const message = `${statusEmoji} *Quote ${statusText}!*
+    const message = `${statusEmoji} *Response ${statusText}!*
 
-Your quote for requirement ${requirementIdentifier} has been ${status}.
-
-${status === 'accepted' ? 'Congratulations! The buyer has accepted your quote. You can now start chatting to finalize details.' : ''}
+Your response for requirement ${requirementIdentifier} has been ${statusText}.
 
 Login to your Grupo manufacturer portal for more details!
 https://grupo.in/manufacturer-portal`;
@@ -223,26 +221,27 @@ https://grupo.in/manufacturer-portal`;
    */
   async notifyPaymentVerified(phoneNumber, payment, requirement) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
-    const amountFormatted = payment?.amount 
-      ? `₹${Number(payment.amount).toLocaleString('en-IN')}` 
-      : 'the payment';
-
     const isFirstPayment = payment?.payment_number === 1;
+
+    const paymentReferenceLine = payment?.utr_number
+      ? `\n\nPayment Reference : ${payment.utr_number}`
+      : '';
     
     const message = isFirstPayment
       ? `💰 *Payment Received - Start Production!*
 
-${amountFormatted} (50% advance) has been verified for requirement ${requirementId}.
+Amount Received (50% advance) has been verified for requirement ${requirementId}.
 
-✅ You may now begin production!
+✅ You may now begin production!${paymentReferenceLine}
 
 Login to your Grupo manufacturer portal to update milestones.
 https://grupo.in/manufacturer-portal`
       : `💰 *Final Payment Received - Ship Now!*
 
-${amountFormatted} (remaining 50%) has been verified for requirement ${requirementId}.
+Amount Received (remaining 50%) has been verified for requirement ${requirementId}.
 
 📦 Please ship the order and share tracking details with the buyer.
+${paymentReferenceLine}
 
 https://grupo.in/manufacturer-portal`;
 
@@ -257,17 +256,18 @@ https://grupo.in/manufacturer-portal`;
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   async notifyPaymentRejected(phoneNumber, payment, reason) {
-    const amountFormatted = payment?.amount 
-      ? `₹${Number(payment.amount).toLocaleString('en-IN')}` 
-      : 'your payment';
+    const paymentReferenceLine = payment?.utr_number
+      ? `\n\nPayment Reference : ${payment.utr_number}`
+      : '';
 
     const message = `❌ *Payment Verification Failed*
 
-We could not verify the UTR for ${amountFormatted}.
+We could not verify the UTR for your submitted payment.
 
 ${reason ? `Reason: ${reason}` : ''}
 
 Please retry the payment with the correct UTR number.
+${paymentReferenceLine}
 
 https://grupo.in/buyer-portal`;
 
@@ -290,7 +290,7 @@ https://grupo.in/buyer-portal`;
     const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
     const manufacturerName = manufacturer?.unit_name || 'The manufacturer';
     
-    const milestoneLabel = milestone === 'm1' ? 'Sample/M1' : 'Production/M2';
+    const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
     
     const message = `📦 *${milestoneLabel} Ready for Review!*
 
@@ -312,7 +312,7 @@ https://grupo.in/buyer-portal`;
    */
   async notifyMilestoneApproved(phoneNumber, milestone, requirement) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    const milestoneLabel = milestone === 'm1' ? 'M1 (Sample)' : 'M2 (Production)';
+    const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
     
     const message = `✅ *${milestoneLabel} Approved!*
 
@@ -335,9 +335,9 @@ https://grupo.in/manufacturer-portal`;
    */
   async notifyMilestonePayoutCompleted(phoneNumber, milestone, payoutAmount, requirement, transactionRef) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    const amountFormatted = payoutAmount 
-      ? `₹${Number(payoutAmount).toLocaleString('en-IN')}` 
-      : 'the milestone payment';
+    // Intentionally not displaying rupee amounts in WhatsApp notifications.
+    void payoutAmount;
+
     const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
     
     const nextStepMessage = milestone === 'm1'
@@ -350,7 +350,7 @@ https://grupo.in/manufacturer-portal`;
 
     const message = `💰 *${milestoneLabel} Payout Transferred!*
 
-${amountFormatted} (25% milestone) has been transferred for requirement ${requirementId}.${nextStepMessage}
+Payout transferred (25% milestone) for requirement ${requirementId}.${nextStepMessage}
 
 ${paymentReferenceLine}
 
@@ -401,15 +401,19 @@ https://grupo.in/buyer-portal`;
    */
   async notifyRemainingPaymentReceived(phoneNumber, payment, requirement) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    const amountFormatted = payment?.amount 
-      ? `₹${Number(payment.amount).toLocaleString('en-IN')}` 
-      : 'the remaining payment';
+    // Intentionally not displaying rupee amounts in WhatsApp notifications.
+
+    const paymentReferenceLine = payment?.utr_number
+      ? `\n\nPayment Reference : ${payment.utr_number}`
+      : '';
 
     const message = `💰 *Remaining Payment Received - Ship Now!*
 
-${amountFormatted} (remaining 50%) has been verified for requirement ${requirementId}.
+Amount Received (remaining 50%) has been verified for requirement ${requirementId}.
 
 📦 Please ship the order to the buyer and share tracking details in your chat.
+
+${paymentReferenceLine}
 
 https://grupo.in/manufacturer-portal`;
 
@@ -433,7 +437,7 @@ https://grupo.in/manufacturer-portal`;
 
 The buyer has confirmed receiving requirement ${requirementId}.
 
-The admin will process the final 50% payout shortly. You'll be notified once the payment is transferred.
+The admin will process the final payout shortly. You'll be notified once the payment is transferred.
 
 https://grupo.in/manufacturer-portal`;
 
@@ -449,9 +453,8 @@ https://grupo.in/manufacturer-portal`;
    */
   async notifyFinalPayoutCompleted(phoneNumber, payoutAmount, requirement, transactionRef) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    const amountFormatted = payoutAmount 
-      ? `₹${Number(payoutAmount).toLocaleString('en-IN')}` 
-      : 'the final payment';
+    // Intentionally not displaying rupee amounts in WhatsApp notifications.
+    void payoutAmount;
 
     const paymentReferenceLine = transactionRef
       ? `\n\nPayment Reference : ${transactionRef}`
@@ -459,9 +462,9 @@ https://grupo.in/manufacturer-portal`;
     
     const message = `🎉 *Order Completed - Final Payout Transferred!*
 
-${amountFormatted} (final 50%) has been transferred for requirement ${requirementId}.
+Final payout transferred (final 50%) for requirement ${requirementId}.
 
-Thank you for a successful order! The full payment cycle is now complete.
+Thank you for a successful order!
 
 ${paymentReferenceLine}
 
