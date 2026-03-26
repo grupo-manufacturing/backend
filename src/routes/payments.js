@@ -520,10 +520,10 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
       });
 
       // Update requirement response status based on payment number
-      // Note: After running migration 002, these statuses will be valid.
-      // For now, we use 'accepted' as a fallback if the new statuses aren't available.
+      // For payment 1, keep status as 'accepted' until admin marks M1 as paid
+      // For payment 2, set to 'cleared_to_ship' after verification
       if (payment.payment_number === 1) {
-        newResponseStatus = 'in_production';
+        newResponseStatus = 'accepted';
       } else {
         newResponseStatus = 'cleared_to_ship';
       }
@@ -533,12 +533,16 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
           status: newResponseStatus
         });
       } catch (statusError) {
-        // Fallback to 'accepted' if new status isn't allowed yet (migration not run)
-        console.warn('Could not set new status, falling back to accepted:', statusError.message);
-        newResponseStatus = 'accepted';
-        await databaseService.updateRequirementResponse(payment.requirement_response_id, {
-          status: 'accepted',
-          accepted_at: new Date().toISOString()
+        console.warn('Could not set status:', statusError.message);
+      }
+
+      // Notify admin that payment 1 is verified and ready for manual M1 payout release
+      if (payment.payment_number === 1 && io) {
+        io.emit('payment:verified_admin_action_needed', {
+          paymentId: updatedPayment.id,
+          payment_number: 1,
+          requirementResponseId: payment.requirement_response_id,
+          message: 'Payment 1 verified. Please mark M1 payout as paid in Milestones tab.'
         });
       }
 

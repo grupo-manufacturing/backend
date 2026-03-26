@@ -228,11 +228,11 @@ https://grupo.in/manufacturer-portal`;
       : '';
     
     const message = isFirstPayment
-      ? `💰 *Payment Received - Start Production!*
+      ? `💰 *Payment Received !*
 
 Amount Received (50% advance) has been verified for requirement ${requirementId}.
 
-✅ You may now begin production!${paymentReferenceLine}
+✅ Please wait for the M1 Payout to be transferred before starting production.
 
 Login to your Grupo manufacturer portal to update milestones.
 https://grupo.in/manufacturer-portal`
@@ -318,7 +318,7 @@ https://grupo.in/buyer-portal`;
 
 The buyer has approved ${milestoneLabel} for requirement ${requirementId}.
 
-The admin will process the 25% milestone payout shortly. You'll be notified once the payment is transferred.
+We'll notify you about the shipping once the buyer pays the remaining 50%.
 
 https://grupo.in/manufacturer-portal`;
 
@@ -341,8 +341,8 @@ https://grupo.in/manufacturer-portal`;
     const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
     
     const nextStepMessage = milestone === 'm1'
-      ? '\n\n🚀 You can now proceed with M2 (full production). Update progress in your portal.'
-      : '\n\n📦 Production complete! Await final payment and prepare for shipping.';
+      ? '\n\n🚀 You can now proceed with sample production. Update progress in your portal.'
+      : '\n\n📦 You can now proceed with full production. Update progress in your portal.';
     
     const paymentReferenceLine = transactionRef
       ? `\n\nPayment Reference : ${transactionRef}`
@@ -383,9 +383,7 @@ https://grupo.in/manufacturer-portal`;
     
     const message = `📦 *Your Order Has Been Shipped!*
 
-Great news! Requirement ${requirementId} has been dispatched by the manufacturer.${trackingInfo}
-
-Check the chat for more details or tracking updates.
+Great news! Requirement ${requirementId} has been dispatched by the manufacturer.
 
 https://grupo.in/buyer-portal`;
 
@@ -411,7 +409,7 @@ https://grupo.in/buyer-portal`;
 
 Amount Received (remaining 50%) has been verified for requirement ${requirementId}.
 
-📦 Please ship the order to the buyer and share tracking details in your chat.
+📦 Please ship the order to the buyer.
 
 ${paymentReferenceLine}
 

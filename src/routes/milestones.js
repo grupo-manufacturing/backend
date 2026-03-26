@@ -112,17 +112,17 @@ router.post('/complete', authenticateToken, async (req, res) => {
       if (currentStatus !== 'in_production') {
         return res.status(400).json({
           success: false,
-          message: `Cannot mark M1 complete from status "${currentStatus}". Order must be in_production.`
+          message: `Cannot mark M1 complete from status "${currentStatus}". Order must be in_production (M1 payout must be marked as paid first).`
         });
       }
       newStatus = 'milestone_1_pending';
       timestampField = 'm1_marked_at';
     } else {
-      // M2: can only mark after M1 payout is done
-      if (currentStatus !== 'milestone_1_done') {
+      // M2: can only mark after M1 payout is paid and M2 payout is paid
+      if (!response.m1_paid_at || !response.m2_paid_at || currentStatus !== 'milestone_1_done') {
         return res.status(400).json({
           success: false,
-          message: `Cannot mark M2 complete from status "${currentStatus}". M1 payout must be completed first.`
+          message: `Cannot mark M2 complete. M1 must be approved, M1 payout paid, and M2 payout paid first.`
         });
       }
       newStatus = 'milestone_2_pending';
@@ -260,6 +260,14 @@ router.post('/approve/:responseId', authenticateToken, async (req, res) => {
         status: newStatus
       });
 
+      // Notify admin that M1 is approved and ready for manual M2 payout release (only for M1)
+      if (milestone === 'm1') {
+        io.emit('milestone:m1_approved_admin_action_needed', {
+          responseId,
+          message: 'M1 approved by buyer. Please mark M2 payout as paid in Milestones tab to allow production to proceed.'
+        });
+      }
+
       // Notify admin (broadcast to admin room or specific admin users)
       io.emit('milestone:ready_for_payout', {
         responseId,
@@ -287,7 +295,7 @@ router.post('/approve/:responseId', authenticateToken, async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Milestone ${milestone.toUpperCase()} approved. Awaiting admin payout.`,
+      message: `Milestone ${milestone.toUpperCase()} approved.${milestone === 'm1' ? ' Admin will mark M2 payout next.' : ' Awaiting payment 2.'}`,
       data: updatedResponse
     });
   } catch (error) {
@@ -326,15 +334,17 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
     const currentStatus = response.status;
     let expectedStatus;
     let timestampField;
+    let newStatus;
 
     if (milestone === 'm1') {
-      expectedStatus = 'milestone_1_done';
+      expectedStatus = 'accepted';  // M1 payout can be marked when status is 'accepted' (after payment 1 verified)
       timestampField = 'm1_paid_at';
+      newStatus = 'in_production';
       
       if (currentStatus !== expectedStatus) {
         return res.status(400).json({
           success: false,
-          message: `Cannot mark M1 payout from status "${currentStatus}". Buyer must approve M1 first (status should be "${expectedStatus}").`
+          message: `Cannot mark M1 payout from status "${currentStatus}". Payment 1 must be verified first (status should be "${expectedStatus}").`
         });
       }
       
@@ -346,13 +356,14 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
         });
       }
     } else {
-      expectedStatus = 'milestone_2_done';
+      expectedStatus = 'milestone_1_done';
       timestampField = 'm2_paid_at';
+      newStatus = 'milestone_1_done'; // Status doesn't change, just m2_paid_at is set
       
       if (currentStatus !== expectedStatus) {
         return res.status(400).json({
           success: false,
-          message: `Cannot mark M2 payout from status "${currentStatus}". Buyer must approve M2 first (status should be "${expectedStatus}").`
+          message: `Cannot mark M2 payout from status "${currentStatus}". M1 must be approved and M1 payout marked as paid first (status should be "${expectedStatus}").`
         });
       }
       
@@ -368,6 +379,11 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
       [timestampField]: new Date().toISOString()
     };
 
+    // For M1, also transition status to 'in_production'
+    if (milestone === 'm1') {
+      updateData.status = newStatus;
+    }
+
     // Optionally store transaction reference in notes
     if (transactionRef || notes) {
       const existingNotes = response.notes || '';
@@ -379,8 +395,12 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
     const requirement = await databaseService.getRequirement(response.requirement_id);
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
 
-    // Calculate payout amount (25% of quoted price)
-    const payoutAmount = response.quoted_price ? (response.quoted_price * 0.25) : 0;
+    // Calculate payout amount after platform fee deduction
+    // M1: 30% - 3% fee = 27% to manufacturer
+    // M2: 20% - 2% fee = 18% to manufacturer
+    const payoutAmount = milestone === 'm1' 
+      ? (response.quoted_price ? (response.quoted_price * 0.27) : 0)
+      : (response.quoted_price ? (response.quoted_price * 0.18) : 0);
 
     // Emit socket event to manufacturer
     if (io) {
@@ -388,7 +408,7 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
         responseId,
         milestone,
         payoutAmount,
-        canProceedToNextStep: milestone === 'm1' // After M1 payout, manufacturer can start M2
+        message: milestone === 'm1' ? 'M1 payout marked as paid. Start sample process now.' : 'M2 payout marked as paid. Start full production now.'
       });
     }
 
@@ -396,6 +416,10 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
     (async () => {
       try {
         if (manufacturer && manufacturer.phone_number) {
+          const msg = milestone === 'm1' 
+            ? `M1 payout (30%) - ₹${Number(payoutAmount).toLocaleString('en-IN')} has been transferred. Start sample process now.`
+            : `M2 payout (20%) - ₹${Number(payoutAmount).toLocaleString('en-IN')} has been transferred. Start full production now.`;
+          
           await whatsappService.notifyMilestonePayoutCompleted(
             manufacturer.phone_number,
             milestone,
@@ -411,7 +435,7 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `${milestone.toUpperCase()} payout marked as completed. Manufacturer notified.`,
+      message: `${milestone.toUpperCase()} payout marked as completed. Manufacturer notified and can now proceed.`,
       data: {
         ...updatedResponse,
         payoutAmount
@@ -432,7 +456,7 @@ router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
   try {
     const supabase = require('../config/supabase');
     
-    // Get all responses where M1, M2 is done but not yet paid, OR delivered but final not paid
+    // Get all responses where M1 payout is pending (accepted + payment verified), M2 payout pending, or final payout pending
     const { data: responses, error } = await supabase
       .from('requirement_responses')
       .select(`
@@ -447,7 +471,7 @@ router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
         ),
         manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number)
       `)
-      .or('status.eq.milestone_1_done,status.eq.milestone_2_done,status.eq.delivered')
+      .or('status.eq.accepted,status.eq.milestone_1_done,status.eq.milestone_2_done,status.eq.delivered')
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -456,8 +480,11 @@ router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
 
     // Filter to only those not yet paid and determine payout type
     const pendingPayouts = (responses || []).filter(r => {
-      if (r.status === 'milestone_1_done' && !r.m1_paid_at) return true;
-      if (r.status === 'milestone_2_done' && !r.m2_paid_at) return true;
+      // M1 payout: when status is 'accepted' and M1 not yet paid (meaning payment 1 was verified)
+      if (r.status === 'accepted' && !r.m1_paid_at) return true;
+      // M2 payout: when status is 'milestone_1_done' and M2 not yet paid (meaning M1 approved but M2 not paid)
+      if (r.status === 'milestone_1_done' && !r.m2_paid_at) return true;
+      // Final payout: when status is 'delivered' and final not yet paid
       if (r.status === 'delivered' && !r.final_paid_at) return true;
       return false;
     }).map(r => {
@@ -465,18 +492,21 @@ router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
       let payoutAmount;
       let payoutLabel;
       
-      if (r.status === 'milestone_1_done' && !r.m1_paid_at) {
+      if (r.status === 'accepted' && !r.m1_paid_at) {
         pendingMilestone = 'm1';
-        payoutAmount = r.quoted_price ? (r.quoted_price * 0.25) : 0;
-        payoutLabel = 'M1 Payout (25%)';
-      } else if (r.status === 'milestone_2_done' && !r.m2_paid_at) {
+        // M1: 30% gross - 3% platform fee = 27% net to manufacturer
+        payoutAmount = r.quoted_price ? (r.quoted_price * 0.27) : 0;
+        payoutLabel = 'M1 Payout (30% - 3% fee = 27%)';
+      } else if (r.status === 'milestone_1_done' && !r.m2_paid_at) {
         pendingMilestone = 'm2';
-        payoutAmount = r.quoted_price ? (r.quoted_price * 0.25) : 0;
-        payoutLabel = 'M2 Payout (25%)';
+        // M2: 20% gross - 2% platform fee = 18% net to manufacturer
+        payoutAmount = r.quoted_price ? (r.quoted_price * 0.18) : 0;
+        payoutLabel = 'M2 Payout (20% - 2% fee = 18%)';
       } else {
         pendingMilestone = 'final';
-        payoutAmount = r.quoted_price ? (r.quoted_price * 0.5) : 0;
-        payoutLabel = 'Final Payout (50%)';
+        // Final: 50% gross - 5% platform fee = 45% net to manufacturer
+        payoutAmount = r.quoted_price ? (r.quoted_price * 0.45) : 0;
+        payoutLabel = 'Final Payout (50% - 5% fee = 45%)';
       }
       
       return {
@@ -546,8 +576,9 @@ router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) 
     const requirement = await databaseService.getRequirement(response.requirement_id);
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
 
-    // Calculate final payout amount (50% of quoted price)
-    const payoutAmount = response.quoted_price ? (response.quoted_price * 0.5) : 0;
+    // Calculate final payout amount after platform fee deduction
+    // Final: 50% - 5% fee = 45% to manufacturer
+    const payoutAmount = response.quoted_price ? (response.quoted_price * 0.45) : 0;
 
     // Emit socket event to manufacturer
     if (io) {
