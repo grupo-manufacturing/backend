@@ -21,7 +21,16 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
     }
 
     const { responseId } = req.params;
-    const { trackingNumber, shippingProvider, notes } = req.body;
+    const { trackingId, courierName, trackingNumber, shippingProvider, notes } = req.body;
+    const normalizedTrackingId = String(trackingId || trackingNumber || '').trim();
+    const normalizedCourierName = String(courierName || shippingProvider || '').trim();
+
+    if (!normalizedCourierName || !normalizedTrackingId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Courier name and tracking ID are required before marking as shipped.'
+      });
+    }
 
     const response = await databaseService.getRequirementResponseById(responseId);
     if (!response) {
@@ -51,9 +60,9 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
     };
 
     // Store tracking info in notes if provided
-    if (trackingNumber || shippingProvider || notes) {
+    if (normalizedTrackingId || normalizedCourierName || notes) {
       const existingNotes = response.notes || '';
-      const shippingNote = `\n[Shipped - ${new Date().toISOString()}] ${shippingProvider || ''} ${trackingNumber || ''} ${notes || ''}`.trim();
+      const shippingNote = `\n[Shipped - ${new Date().toISOString()}] Courier: ${normalizedCourierName} | Tracking ID: ${normalizedTrackingId} ${notes || ''}`.trim();
       updateData.notes = existingNotes + shippingNote;
     }
 
@@ -67,8 +76,10 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
         responseId,
         status: 'shipped',
         shipped_at: updateData.shipped_at,
-        trackingNumber: trackingNumber || null,
-        shippingProvider: shippingProvider || null
+        trackingId: normalizedTrackingId,
+        courierName: normalizedCourierName,
+        trackingNumber: normalizedTrackingId,
+        shippingProvider: normalizedCourierName
       });
     }
 
@@ -79,8 +90,8 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
           await whatsappService.notifyOrderShipped(
             buyer.phone_number,
             requirement,
-            trackingNumber,
-            shippingProvider
+            normalizedTrackingId,
+            normalizedCourierName
           );
         }
       } catch (waError) {

@@ -385,6 +385,8 @@ https://grupo.in/manufacturer-portal`;
 
 Great news! Requirement ${requirementId} has been dispatched by the manufacturer.
 
+${trackingInfo}
+
 https://grupo.in/buyer-portal`;
 
     return this.sendMessage(phoneNumber, message);
