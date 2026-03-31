@@ -1,13 +1,23 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const rateLimit = require('express-rate-limit');
 const authService = require('../services/authService');
 
 const router = express.Router();
 
 const ADMIN_CREDENTIALS = {
-  username: process.env.ADMIN_USERNAME || 'admin72397',
-  password: process.env.ADMIN_PASSWORD || '72397admin'
+  username: process.env.ADMIN_USERNAME,
+  password: process.env.ADMIN_PASSWORD
 };
+
+const otpRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  message: 'Too many OTP requests from this number, please try again after 15 minutes',
+  keyGenerator: (req, res) => req.body.phoneNumber,
+  standardHeaders: false,
+  legacyHeaders: false
+});
 
 function isManufacturerOnboardingComplete(profile) {
   if (!profile) return false;
@@ -54,7 +64,7 @@ const validateOTP = [
 ];
 
 // POST /api/auth/send-otp
-router.post('/send-otp', validatePhoneNumber, async (req, res) => {
+router.post('/send-otp', otpRateLimiter, validatePhoneNumber, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -385,7 +395,25 @@ router.put('/manufacturer-profile', [
       });
     }
 
-    const updatedProfile = await authService.updateManufacturerProfile(profile.id, req.body);
+    const allowedFields = [
+      'unit_name',
+      'business_type',
+      'gst_number',
+      'pan_number',
+      'msme_number',
+      'product_types',
+      'daily_capacity',
+      'manufacturing_unit_image_url'
+    ];
+
+    const updateData = {};
+    for (const field of allowedFields) {
+      if (field in req.body) {
+        updateData[field] = req.body[field];
+      }
+    }
+
+    const updatedProfile = await authService.updateManufacturerProfile(profile.id, updateData);
 
     res.status(200).json({
       success: true,
@@ -419,6 +447,13 @@ router.post('/admin-login', [
         success: false,
         message: 'Validation failed',
         errors: errors.array()
+      });
+    }
+
+    if (!ADMIN_CREDENTIALS.username || !ADMIN_CREDENTIALS.password) {
+      return res.status(500).json({
+        success: false,
+        message: 'Admin credentials not configured'
       });
     }
 

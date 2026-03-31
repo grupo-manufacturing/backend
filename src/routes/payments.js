@@ -11,7 +11,6 @@ router.setIo = (socketIo) => {
   io = socketIo;
 };
 
-// Admin authentication middleware (same pattern as requirements.js)
 const authenticateAdmin = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -24,21 +23,6 @@ const authenticateAdmin = (req, res, next) => {
     }
 
     const token = authHeader.substring(7);
-    
-    const ADMIN_TOKENS = [
-      'demo_admin_token',
-      process.env.ADMIN_TOKEN
-    ].filter(Boolean);
-    
-    if (ADMIN_TOKENS.includes(token)) {
-      req.user = {
-        userId: 'admin_demo',
-        role: 'admin',
-        phoneNumber: 'admin',
-        verified: true
-      };
-      return next();
-    }
     
     try {
       const authService = require('../services/authService');

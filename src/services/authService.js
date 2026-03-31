@@ -11,15 +11,16 @@ const twilioClient = twilio(
 
 class AuthService {
   /**
-   * Generate a random OTP
+   * Generate a random OTP using cryptographically secure method
    * @param {number} length - Length of OTP
    * @returns {string} Generated OTP
    */
   generateOTP(length = parseInt(process.env.OTP_LENGTH) || 6) {
     const digits = '0123456789';
     let otp = '';
+    const buffer = crypto.randomBytes(length);
     for (let i = 0; i < length; i++) {
-      otp += digits[Math.floor(Math.random() * digits.length)];
+      otp += digits[buffer[i] % digits.length];
     }
     return otp;
   }
@@ -68,11 +69,12 @@ class AuthService {
       // Generate new OTP
       const otp = this.generateOTP();
       const expiryTime = new Date(Date.now() + (parseInt(process.env.OTP_EXPIRY_MINUTES) || 2) * 60 * 1000);
+      const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
 
-      // Store OTP in database
+      // Store OTP hash in database (never store plaintext OTP)
       const otpData = {
         phone_number: phoneNumber,
-        otp_code: otp,
+        otp_code_hash: otpHash,
         expires_at: expiryTime.toISOString(),
         is_verified: false,
         attempts: 0
@@ -148,8 +150,9 @@ class AuthService {
         throw new Error('Too many failed attempts. Please request a new OTP.');
       }
 
-      // Verify OTP
-      if (storedOTP.otp_code !== otp) {
+      // Verify OTP by comparing hashes
+      const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+      if (storedOTP.otp_code_hash !== otpHash) {
         // Increment attempts on the specific OTP session row
         await databaseService.updateOTPSession(storedOTP.id, {
           attempts: storedOTP.attempts + 1

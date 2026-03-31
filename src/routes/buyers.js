@@ -1,10 +1,11 @@
 const express = require('express');
 const databaseService = require('../services/databaseService');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
 // GET /api/buyers
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     // Enforce pagination defaults and maximum limits
     const DEFAULT_LIMIT = 20;

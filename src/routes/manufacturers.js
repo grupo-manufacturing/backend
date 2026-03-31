@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const databaseService = require('../services/databaseService');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -16,21 +17,6 @@ const authenticateAdmin = (req, res, next) => {
     }
 
     const token = authHeader.substring(7);
-    
-    const ADMIN_TOKENS = [
-      'demo_admin_token',
-      process.env.ADMIN_TOKEN
-    ].filter(Boolean);
-    
-    if (ADMIN_TOKENS.includes(token)) {
-      req.user = {
-        userId: 'admin_demo',
-        role: 'admin',
-        phoneNumber: 'admin',
-        verified: true
-      };
-      return next();
-    }
     
     try {
       const authService = require('../services/authService');
@@ -63,7 +49,7 @@ const authenticateAdmin = (req, res, next) => {
 };
 
 // GET /api/manufacturers
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     // Enforce pagination defaults and maximum limits
     const DEFAULT_LIMIT = 20;

@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS otp_sessions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   phone_number VARCHAR(20) NOT NULL,
-  otp_code VARCHAR(10) NOT NULL,
+  otp_code_hash VARCHAR(64) NOT NULL,
   expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
   is_verified BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
