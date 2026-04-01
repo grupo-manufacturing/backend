@@ -2,56 +2,9 @@ const express = require('express');
 const router = express.Router();
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
-const { authenticateToken } = require('../middleware/auth');
-
-let io = null;
-
-router.setIo = (socketIo) => {
-  io = socketIo;
-};
-
-const authenticateAdmin = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    
-    try {
-      const authService = require('../services/authService');
-      const decoded = authService.verifyJWT(token);
-      
-      if (decoded.role === 'admin') {
-        req.user = {
-          userId: decoded.userId,
-          role: decoded.role,
-          phoneNumber: decoded.phoneNumber,
-          verified: true
-        };
-        return next();
-      }
-    } catch {
-      // JWT verification failed
-    }
-    
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. Invalid admin token.'
-    });
-  } catch (error) {
-    console.error('Admin authentication error:', error);
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication failed'
-    });
-  }
-};
+const { authenticateToken, authenticateAdmin } = require('../middleware/auth');
+const PAYOUT_RATES = require('../constants/payoutRates');
+const notifyAsync = require('../utils/notifyAsync');
 
 // POST /api/milestones/complete - Manufacturer marks milestone as done
 // For M1: in_production -> milestone_1_pending
@@ -125,6 +78,7 @@ router.post('/complete', authenticateToken, async (req, res) => {
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
 
     // Emit socket event to buyer
+    const io = req.app.locals.io;
     if (io && requirement) {
       io.to(`user:${requirement.buyer_id}`).emit('milestone:pending', {
         responseId,
@@ -138,20 +92,16 @@ router.post('/complete', authenticateToken, async (req, res) => {
     }
 
     // Send WhatsApp notification to buyer
-    (async () => {
-      try {
-        if (buyer && buyer.phone_number) {
-          await whatsappService.notifyMilestonePendingApproval(
-            buyer.phone_number,
-            milestone,
-            requirement,
-            manufacturer
-          );
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      if (buyer && buyer.phone_number) {
+        await whatsappService.notifyMilestonePendingApproval(
+          buyer.phone_number,
+          milestone,
+          requirement,
+          manufacturer
+        );
       }
-    })();
+    }, 'WhatsApp notification (milestone pending)');
 
     return res.status(200).json({
       success: true,
@@ -237,6 +187,7 @@ router.post('/approve/:responseId', authenticateToken, async (req, res) => {
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
 
     // Emit socket events
+    const io = req.app.locals.io;
     if (io) {
       // Notify manufacturer
       io.to(`user:${response.manufacturer_id}`).emit('milestone:approved', {
@@ -264,19 +215,15 @@ router.post('/approve/:responseId', authenticateToken, async (req, res) => {
     }
 
     // Send WhatsApp notification to admin (if configured) and manufacturer
-    (async () => {
-      try {
-        if (manufacturer && manufacturer.phone_number) {
-          await whatsappService.notifyMilestoneApproved(
-            manufacturer.phone_number,
-            milestone,
-            requirement
-          );
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      if (manufacturer && manufacturer.phone_number) {
+        await whatsappService.notifyMilestoneApproved(
+          manufacturer.phone_number,
+          milestone,
+          requirement
+        );
       }
-    })();
+    }, 'WhatsApp notification (milestone approved)');
 
     return res.status(200).json({
       success: true,
@@ -383,11 +330,12 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
     // Calculate payout amount after platform fee deduction
     // M1: 30% - 3% fee = 27% to manufacturer
     // M2: 20% - 2% fee = 18% to manufacturer
-    const payoutAmount = milestone === 'm1' 
-      ? (response.quoted_price ? (response.quoted_price * 0.27) : 0)
-      : (response.quoted_price ? (response.quoted_price * 0.18) : 0);
+    const payoutAmount = milestone === 'm1'
+      ? (response.quoted_price ? (response.quoted_price * PAYOUT_RATES.M1_NET) : 0)
+      : (response.quoted_price ? (response.quoted_price * PAYOUT_RATES.M2_NET) : 0);
 
     // Emit socket event to manufacturer
+    const io = req.app.locals.io;
     if (io) {
       io.to(`user:${response.manufacturer_id}`).emit('milestone:payout_completed', {
         responseId,
@@ -398,25 +346,17 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
     }
 
     // Send WhatsApp notification to manufacturer
-    (async () => {
-      try {
-        if (manufacturer && manufacturer.phone_number) {
-          const msg = milestone === 'm1' 
-            ? `M1 payout (30%) - ₹${Number(payoutAmount).toLocaleString('en-IN')} has been transferred. Start sample process now.`
-            : `M2 payout (20%) - ₹${Number(payoutAmount).toLocaleString('en-IN')} has been transferred. Start full production now.`;
-          
-          await whatsappService.notifyMilestonePayoutCompleted(
-            manufacturer.phone_number,
-            milestone,
-            payoutAmount,
-            requirement,
-            transactionRef
-          );
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      if (manufacturer && manufacturer.phone_number) {
+        await whatsappService.notifyMilestonePayoutCompleted(
+          manufacturer.phone_number,
+          milestone,
+          payoutAmount,
+          requirement,
+          transactionRef
+        );
       }
-    })();
+    }, 'WhatsApp notification (milestone payout)');
 
     return res.status(200).json({
       success: true,
@@ -480,17 +420,17 @@ router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
       if (r.status === 'accepted' && !r.m1_paid_at) {
         pendingMilestone = 'm1';
         // M1: 30% gross - 3% platform fee = 27% net to manufacturer
-        payoutAmount = r.quoted_price ? (r.quoted_price * 0.27) : 0;
+        payoutAmount = r.quoted_price ? (r.quoted_price * PAYOUT_RATES.M1_NET) : 0;
         payoutLabel = 'M1 Payout (30% - 3% fee = 27%)';
       } else if (r.status === 'milestone_1_done' && !r.m2_paid_at) {
         pendingMilestone = 'm2';
         // M2: 20% gross - 2% platform fee = 18% net to manufacturer
-        payoutAmount = r.quoted_price ? (r.quoted_price * 0.18) : 0;
+        payoutAmount = r.quoted_price ? (r.quoted_price * PAYOUT_RATES.M2_NET) : 0;
         payoutLabel = 'M2 Payout (20% - 2% fee = 18%)';
       } else {
         pendingMilestone = 'final';
         // Final: 50% gross - 5% platform fee = 45% net to manufacturer
-        payoutAmount = r.quoted_price ? (r.quoted_price * 0.45) : 0;
+        payoutAmount = r.quoted_price ? (r.quoted_price * PAYOUT_RATES.FINAL_NET) : 0;
         payoutLabel = 'Final Payout (50% - 5% fee = 45%)';
       }
       
@@ -563,9 +503,10 @@ router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) 
 
     // Calculate final payout amount after platform fee deduction
     // Final: 50% - 5% fee = 45% to manufacturer
-    const payoutAmount = response.quoted_price ? (response.quoted_price * 0.45) : 0;
+    const payoutAmount = response.quoted_price ? (response.quoted_price * PAYOUT_RATES.FINAL_NET) : 0;
 
     // Emit socket event to manufacturer
+    const io = req.app.locals.io;
     if (io) {
       io.to(`user:${response.manufacturer_id}`).emit('order:completed', {
         responseId,
@@ -575,20 +516,16 @@ router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) 
     }
 
     // Send WhatsApp notification to manufacturer
-    (async () => {
-      try {
-        if (manufacturer && manufacturer.phone_number) {
-          await whatsappService.notifyFinalPayoutCompleted(
-            manufacturer.phone_number,
-            payoutAmount,
-            requirement,
-            transactionRef
-          );
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      if (manufacturer && manufacturer.phone_number) {
+        await whatsappService.notifyFinalPayoutCompleted(
+          manufacturer.phone_number,
+          payoutAmount,
+          requirement,
+          transactionRef
+        );
       }
-    })();
+    }, 'WhatsApp notification (final payout)');
 
     return res.status(200).json({
       success: true,

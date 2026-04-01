@@ -2,6 +2,7 @@
  * Conversation Repository - Conversations and Messages management
  */
 const { supabase } = require('./BaseRepository');
+const { normalizePagination } = require('../../utils/paginationHelper');
 
 class ConversationRepository {
   /**
@@ -58,14 +59,15 @@ class ConversationRepository {
    */
   async listConversations(userId, role, { limit = 50, offset = 0 } = {}) {
     try {
+      const normalized = normalizePagination({ limit, offset }, { defaultLimit: 50, maxLimit: 100 });
       // Build the main query - select only fields needed for list view to reduce payload size
       let query = supabase
         .from('conversations')
         .select('id, buyer_id, manufacturer_id, last_message_text, last_message_at, created_at')
         .order('last_message_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
-        .limit(limit)
-        .range(offset, offset + limit - 1);
+        .limit(normalized.limit)
+        .range(normalized.offset, normalized.offset + normalized.limit - 1);
 
       if (role === 'buyer') {
         query = query.eq('buyer_id', userId);

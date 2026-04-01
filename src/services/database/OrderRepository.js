@@ -2,6 +2,8 @@
  * Order Repository - Orders management
  */
 const { supabase } = require('./BaseRepository');
+const { normalizePagination } = require('../../utils/paginationHelper');
+const { applySorting } = require('../../utils/queryOptionsHelper');
 
 class OrderRepository {
   /**
@@ -55,23 +57,9 @@ class OrderRepository {
         query = query.eq('status', options.status);
       }
 
-      // Apply sorting
-      if (options.sortBy) {
-        const ascending = options.sortOrder === 'asc';
-        query = query.order(options.sortBy, { ascending });
-      } else {
-        // Default sorting by created_at descending (most recent first)
-        query = query.order('created_at', { ascending: false });
-      }
-
-      // Apply pagination
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
-
-      if (options.offset) {
-        query = query.range(options.offset, options.offset + (options.limit || 100) - 1);
-      }
+      query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      query = query.limit(limit).range(offset, offset + limit - 1);
 
       const { data, error } = await query;
 
@@ -137,23 +125,9 @@ class OrderRepository {
         query = query.eq('status', options.status);
       }
 
-      // Apply sorting
-      if (options.sortBy) {
-        const ascending = options.sortOrder === 'asc';
-        query = query.order(options.sortBy, { ascending });
-      } else {
-        // Default sorting by created_at descending (most recent first)
-        query = query.order('created_at', { ascending: false });
-      }
-
-      // Apply pagination
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
-
-      if (options.offset) {
-        query = query.range(options.offset, options.offset + (options.limit || 100) - 1);
-      }
+      query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      query = query.limit(limit).range(offset, offset + limit - 1);
 
       const { data, error } = await query;
 
@@ -232,23 +206,9 @@ class OrderRepository {
         query = query.eq('status', options.status);
       }
 
-      // Apply sorting
-      if (options.sortBy) {
-        const ascending = options.sortOrder === 'asc';
-        query = query.order(options.sortBy, { ascending });
-      } else {
-        // Default sorting by created_at descending (most recent first)
-        query = query.order('created_at', { ascending: false });
-      }
-
-      // Apply pagination
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
-
-      if (options.offset) {
-        query = query.range(options.offset, options.offset + (options.limit || 100) - 1);
-      }
+      query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
+      query = query.limit(limit).range(offset, offset + limit - 1);
 
       const { data, error } = await query;
 

@@ -3,57 +3,11 @@ const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
-const { authenticateToken } = require('../middleware/auth');
-
-let io = null;
+const { authenticateToken, authenticateAdmin } = require('../middleware/auth');
+const { parsePagination } = require('../utils/paginationHelper');
+const { normalizeSort } = require('../utils/queryOptionsHelper');
+const notifyAsync = require('../utils/notifyAsync');
 const MIN_REQUIREMENT_QUANTITY = 30;
-
-router.setIo = (socketIo) => {
-  io = socketIo;
-};
-
-const authenticateAdmin = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    
-    try {
-      const authService = require('../services/authService');
-      const decoded = authService.verifyJWT(token);
-      
-      if (decoded.role === 'admin') {
-        req.user = {
-          userId: decoded.userId,
-          role: decoded.role,
-          phoneNumber: decoded.phoneNumber,
-          verified: true
-        };
-        return next();
-      }
-    } catch {
-      // JWT verification failed
-    }
-    
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. Invalid admin token.'
-    });
-  } catch (error) {
-    console.error('Admin authentication error:', error);
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication failed'
-    });
-  }
-};
 
 // Validation middleware for creating requirements
 const validateCreateRequirement = [
@@ -136,12 +90,13 @@ router.post('/', authenticateToken, validateCreateRequirement, async (req, res) 
     });
 
     // Process notifications asynchronously (fire and forget)
-    (async () => {
+    notifyAsync(async () => {
       try {
         const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
         const enrichedRequirement = { ...requirement, buyer: buyer || null };
 
         const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
+        const io = req.app.locals.io;
         
         // Send socket notifications to verified manufacturers (non-blocking)
         if (io && verifiedManufacturers.length > 0) {
@@ -180,7 +135,7 @@ router.post('/', authenticateToken, validateCreateRequirement, async (req, res) 
       } catch (error) {
         console.error('Background notification error:', error.message);
       }
-    })();
+    }, 'Background requirement notification');
   } catch (error) {
     console.error('Create requirement error:', error);
     return res.status(500).json({
@@ -194,21 +149,14 @@ router.post('/', authenticateToken, validateCreateRequirement, async (req, res) 
 // GET /api/requirements
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Enforce pagination defaults and maximum limits
-    const DEFAULT_LIMIT = 20;
-    const MAX_LIMIT = 100;
-    
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
-      MAX_LIMIT // Maximum 100
-    );
-    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const { sortBy, sortOrder } = normalizeSort(req.query, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
     const options = {
       limit,
       offset,
-      sortBy: req.query.sortBy,
-      sortOrder: req.query.sortOrder
+      sortBy,
+      sortOrder
     };
 
     let requirements;
@@ -514,20 +462,17 @@ router.post('/:id/responses', authenticateToken, async (req, res) => {
       manufacturer: manufacturer || null
     };
 
+    const io = req.app.locals.io;
     if (io) {
       io.to(`user:${requirement.buyer_id}`).emit('requirement:response:new', { response: enrichedResponse });
     }
 
-    (async () => {
-      try {
-        const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
-        if (buyer && buyer.phone_number) {
-          await whatsappService.notifyNewRequirementResponse(buyer.phone_number, response, manufacturer);
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
+      if (buyer && buyer.phone_number) {
+        await whatsappService.notifyNewRequirementResponse(buyer.phone_number, response, manufacturer);
       }
-    })();
+    }, 'WhatsApp notification (new requirement response)');
 
     return res.status(201).json({
       success: true,
@@ -555,22 +500,15 @@ router.get('/responses/my-responses', authenticateToken, async (req, res) => {
       });
     }
 
-    // Enforce pagination defaults and maximum limits
-    const DEFAULT_LIMIT = 20;
-    const MAX_LIMIT = 100;
-    
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
-      MAX_LIMIT // Maximum 100
-    );
-    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const { sortBy, sortOrder } = normalizeSort(req.query, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
     const options = {
       status: req.query.status,
       limit,
       offset,
-      sortBy: req.query.sortBy,
-      sortOrder: req.query.sortOrder
+      sortBy,
+      sortOrder
     };
 
     const responses = await databaseService.getManufacturerResponses(req.user.userId, options);
@@ -741,6 +679,7 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
       manufacturer: manufacturer || null
     };
 
+    const io = req.app.locals.io;
     if (io) {
       io.to(`user:${response.manufacturer_id}`).emit('requirement:response:status:updated', { 
         response: enrichedResponse,
@@ -748,15 +687,11 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
       });
     }
 
-    (async () => {
-      try {
-        if (manufacturer && manufacturer.phone_number) {
-          await whatsappService.notifyResponseStatusUpdate(manufacturer.phone_number, status, requirement);
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      if (manufacturer && manufacturer.phone_number) {
+        await whatsappService.notifyResponseStatusUpdate(manufacturer.phone_number, status, requirement);
       }
-    })();
+    }, 'WhatsApp notification (response status update)');
 
     return res.status(200).json({
       success: true,
@@ -776,22 +711,15 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
 // GET /api/requirements/admin/orders (Admin only)
 router.get('/admin/orders', authenticateAdmin, async (req, res) => {
   try {
-    // Admin endpoints can have higher limits, but still enforce maximum
-    const DEFAULT_LIMIT = 50;
-    const MAX_LIMIT = 200; // Higher limit for admin
-    
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 50
-      MAX_LIMIT // Maximum 200 for admin
-    );
-    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
+    const { sortBy, sortOrder } = normalizeSort(req.query, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
     const options = {
       status: req.query.status,
       limit,
       offset,
-      sortBy: req.query.sortBy,
-      sortOrder: req.query.sortOrder
+      sortBy,
+      sortOrder
     };
 
     // Fetch all requirement responses (acts as orders for admin analytics/reporting)

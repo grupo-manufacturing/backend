@@ -3,12 +3,8 @@ const router = express.Router();
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
 const { authenticateToken } = require('../middleware/auth');
-
-let io = null;
-
-router.setIo = (socketIo) => {
-  io = socketIo;
-};
+const PAYOUT_RATES = require('../constants/payoutRates');
+const notifyAsync = require('../utils/notifyAsync');
 
 // POST /api/orders/ship/:responseId - Manufacturer marks order as shipped
 router.post('/ship/:responseId', authenticateToken, async (req, res) => {
@@ -71,6 +67,7 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
     const buyer = requirement ? await databaseService.findBuyerProfile(requirement.buyer_id) : null;
 
     // Emit socket event to buyer
+    const io = req.app.locals.io;
     if (io && requirement) {
       io.to(`user:${requirement.buyer_id}`).emit('order:shipped', {
         responseId,
@@ -84,20 +81,16 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
     }
 
     // Send WhatsApp notification to buyer
-    (async () => {
-      try {
-        if (buyer && buyer.phone_number) {
-          await whatsappService.notifyOrderShipped(
-            buyer.phone_number,
-            requirement,
-            normalizedTrackingId,
-            normalizedCourierName
-          );
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      if (buyer && buyer.phone_number) {
+        await whatsappService.notifyOrderShipped(
+          buyer.phone_number,
+          requirement,
+          normalizedTrackingId,
+          normalizedCourierName
+        );
       }
-    })();
+    }, 'WhatsApp notification (order shipped)');
 
     return res.status(200).json({
       success: true,
@@ -158,6 +151,7 @@ router.post('/confirm-delivery/:responseId', authenticateToken, async (req, res)
     const manufacturer = await databaseService.findManufacturerProfile(response.manufacturer_id);
 
     // Emit socket event to notify about delivery confirmation
+    const io = req.app.locals.io;
     if (io) {
       // Notify manufacturer
       io.to(`user:${response.manufacturer_id}`).emit('order:delivered', {
@@ -173,23 +167,18 @@ router.post('/confirm-delivery/:responseId', authenticateToken, async (req, res)
         requirement,
         manufacturer,
         quoted_price: response.quoted_price,
-        final_payout_amount: response.quoted_price ? (response.quoted_price * 0.5) : 0
+        final_payout_amount: response.quoted_price ? (response.quoted_price * PAYOUT_RATES.FINAL_NET) : 0
       });
     }
 
-    // Send WhatsApp notification to manufacturer
-    (async () => {
-      try {
-        if (manufacturer && manufacturer.phone_number) {
-          await whatsappService.notifyDeliveryConfirmed(
-            manufacturer.phone_number,
-            requirement
-          );
-        }
-      } catch (waError) {
-        console.error('WhatsApp notification error:', waError.message);
+    notifyAsync(async () => {
+      if (manufacturer && manufacturer.phone_number) {
+        await whatsappService.notifyDeliveryConfirmed(
+          manufacturer.phone_number,
+          requirement
+        );
       }
-    })();
+    }, 'WhatsApp notification (delivery confirmed)');
 
     return res.status(200).json({
       success: true,

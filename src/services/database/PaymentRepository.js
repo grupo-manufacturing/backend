@@ -2,6 +2,7 @@
  * Payment Repository - Payments management for the escrow + milestone system
  */
 const { supabase } = require('./BaseRepository');
+const { normalizePagination } = require('../../utils/paginationHelper');
 
 class PaymentRepository {
   /**
@@ -180,12 +181,7 @@ class PaymentRepository {
    */
   async getPendingVerificationPayments(options = {}) {
     try {
-      const DEFAULT_LIMIT = 50;
-      const MAX_LIMIT = 200;
-      const limit = options.limit
-        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT)
-        : DEFAULT_LIMIT;
-      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
 
       const { data, error } = await supabase
         .from('payments')
@@ -229,12 +225,7 @@ class PaymentRepository {
    */
   async getBuyerPayments(buyerId, options = {}) {
     try {
-      const DEFAULT_LIMIT = 20;
-      const MAX_LIMIT = 100;
-      const limit = options.limit
-        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT)
-        : DEFAULT_LIMIT;
-      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       let query = supabase
         .from('payments')
@@ -278,12 +269,7 @@ class PaymentRepository {
    */
   async getManufacturerPayments(manufacturerId, options = {}) {
     try {
-      const DEFAULT_LIMIT = 20;
-      const MAX_LIMIT = 100;
-      const limit = options.limit
-        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT)
-        : DEFAULT_LIMIT;
-      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       let query = supabase
         .from('payments')

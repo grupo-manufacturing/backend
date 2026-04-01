@@ -1,71 +1,23 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const databaseService = require('../services/databaseService');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, authenticateAdmin } = require('../middleware/auth');
+const { parsePagination } = require('../utils/paginationHelper');
+const { normalizeSort } = require('../utils/queryOptionsHelper');
 
 const router = express.Router();
-
-const authenticateAdmin = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    
-    try {
-      const authService = require('../services/authService');
-      const decoded = authService.verifyJWT(token);
-      
-      if (decoded.role === 'admin') {
-        req.user = {
-          userId: decoded.userId,
-          role: decoded.role,
-          phoneNumber: decoded.phoneNumber,
-          verified: true
-        };
-        return next();
-      }
-    } catch {
-      // JWT verification failed
-    }
-    
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. Invalid admin token.'
-    });
-  } catch (error) {
-    console.error('Admin authentication error:', error);
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication failed'
-    });
-  }
-};
 
 // GET /api/manufacturers
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Enforce pagination defaults and maximum limits
-    const DEFAULT_LIMIT = 20;
-    const MAX_LIMIT = 100;
-    
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
-      MAX_LIMIT // Maximum 100
-    );
-    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const { sortBy, sortOrder } = normalizeSort(req.query, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
     const options = {
       verified: req.query.verified !== undefined ? req.query.verified === 'true' : undefined,
       business_type: req.query.business_type,
-      sortBy: req.query.sortBy || 'created_at',
-      sortOrder: req.query.sortOrder || 'desc',
+      sortBy,
+      sortOrder,
       limit,
       offset
     };

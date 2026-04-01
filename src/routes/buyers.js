@@ -1,25 +1,20 @@
 const express = require('express');
 const databaseService = require('../services/databaseService');
 const { authenticateToken } = require('../middleware/auth');
+const { parsePagination } = require('../utils/paginationHelper');
+const { normalizeSort } = require('../utils/queryOptionsHelper');
 
 const router = express.Router();
 
 // GET /api/buyers
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    // Enforce pagination defaults and maximum limits
-    const DEFAULT_LIMIT = 20;
-    const MAX_LIMIT = 100;
-    
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
-      MAX_LIMIT // Maximum 100
-    );
-    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const { sortBy, sortOrder } = normalizeSort(req.query, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
     const options = {
-      sortBy: req.query.sortBy || 'created_at',
-      sortOrder: req.query.sortOrder || 'desc',
+      sortBy,
+      sortOrder,
       limit,
       offset
     };

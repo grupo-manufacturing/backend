@@ -38,6 +38,48 @@ const authenticateToken = (req, res, next) => {
 };
 
 /**
+ * Admin-only authentication middleware.
+ * Uses the same JWT verification path as authenticateToken, then enforces role.
+ */
+const authenticateAdmin = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. No token provided.'
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = authService.verifyJWT(token);
+
+    if (decoded.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Invalid admin token.'
+      });
+    }
+
+    req.user = {
+      userId: decoded.userId,
+      role: decoded.role,
+      phoneNumber: decoded.phoneNumber,
+      verified: true
+    };
+
+    return next();
+  } catch (error) {
+    console.error('Admin authentication error:', error);
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication failed'
+    });
+  }
+};
+
+/**
  * Optional authentication middleware
  * Verifies JWT token if provided, but doesn't require it
  */
@@ -92,6 +134,7 @@ const requireRole = (role) => {
 
 module.exports = {
   authenticateToken,
+  authenticateAdmin,
   optionalAuth,
   requireRole,
   /**

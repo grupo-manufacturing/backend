@@ -3,6 +3,7 @@ const { body, param, query, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
 const databaseService = require('../services/databaseService');
 const { buildMessageSummary } = require('../utils/messageSummary');
+const { parsePagination } = require('../utils/paginationHelper');
 
 const router = express.Router();
 
@@ -16,15 +17,7 @@ const sanitizeBody = (text) => {
 router.get('/conversations', authenticateToken, async (req, res) => {
   try {
     const { userId, role } = req.user;
-    // Enforce pagination defaults and maximum limits for conversations
-    const DEFAULT_LIMIT = 20;
-    const MAX_LIMIT = 100;
-    
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || DEFAULT_LIMIT, 1), // At least 1, default 20
-      MAX_LIMIT // Maximum 100
-    );
-    const offset = Math.max(parseInt(req.query.offset) || 0, 0); // At least 0
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
 
     // Get conversations with related data (buyer/manufacturer profiles) and unread counts
     // This is now optimized to avoid N+1 queries
@@ -118,12 +111,7 @@ router.get('/conversations/:id/messages/requirement/:requirementId', [
     const conversationId = req.params.id;
     const requirementId = req.params.requirementId;
     const before = req.query.before;
-    // Enforce maximum limit for messages
-    const MAX_MESSAGE_LIMIT = 200;
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || 50, 1), // At least 1, default 50
-      MAX_MESSAGE_LIMIT // Maximum 200
-    );
+    const { limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
 
     const convo = await databaseService.getConversation(conversationId);
     const { userId, role } = req.user;
@@ -159,11 +147,7 @@ router.get('/conversations/:id/messages/normal', [
 
     const conversationId = req.params.id;
     const before = req.query.before;
-    const MAX_MESSAGE_LIMIT = 200;
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || 50, 1),
-      MAX_MESSAGE_LIMIT
-    );
+    const { limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
 
     const convo = await databaseService.getConversation(conversationId);
     const { userId, role } = req.user;
@@ -200,12 +184,7 @@ router.get('/conversations/:id/messages', [
 
     const conversationId = req.params.id;
     const before = req.query.before;
-    // Enforce maximum limit for messages
-    const MAX_MESSAGE_LIMIT = 100; // Lower limit for general message pagination
-    const limit = Math.min(
-      Math.max(parseInt(req.query.limit) || 50, 1), // At least 1, default 50
-      MAX_MESSAGE_LIMIT // Maximum 100
-    );
+    const { limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 100 });
     const requirementId = req.query.requirementId || null;
 
     const convo = await databaseService.getConversation(conversationId);

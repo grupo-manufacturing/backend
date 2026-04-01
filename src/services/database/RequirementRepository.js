@@ -2,6 +2,8 @@
  * Requirement Repository - Requirements and Requirement Responses management
  */
 const { supabase } = require('./BaseRepository');
+const { normalizePagination } = require('../../utils/paginationHelper');
+const { applySorting } = require('../../utils/queryOptionsHelper');
 
 class RequirementRepository {
   // =============================================
@@ -46,22 +48,9 @@ class RequirementRepository {
         .select('id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link, status')
         .eq('buyer_id', buyerId);
 
-      // Apply sorting
-      if (options.sortBy) {
-        const ascending = options.sortOrder === 'asc';
-        query = query.order(options.sortBy, { ascending });
-      } else {
-        // Default sorting by created_at descending
-        query = query.order('created_at', { ascending: false });
-      }
+      query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      // Apply pagination with safety defaults
-      const DEFAULT_LIMIT = 20;
-      const MAX_LIMIT = 100;
-      const limit = options.limit 
-        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT) 
-        : DEFAULT_LIMIT;
-      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);
@@ -218,22 +207,9 @@ class RequirementRepository {
           buyer:buyer_profiles(id, full_name, phone_number, business_address)
         `);
 
-      // Apply sorting
-      if (options.sortBy) {
-        const ascending = options.sortOrder === 'asc';
-        query = query.order(options.sortBy, { ascending });
-      } else {
-        // Default sorting by created_at descending
-        query = query.order('created_at', { ascending: false });
-      }
+      query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      // Apply pagination with safety defaults
-      const DEFAULT_LIMIT = 20;
-      const MAX_LIMIT = 200; // Higher limit for getAllRequirements (used by admin)
-      const limit = options.limit 
-        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT) 
-        : DEFAULT_LIMIT;
-      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 200 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);
@@ -406,21 +382,9 @@ class RequirementRepository {
         query = query.eq('status', options.status);
       }
 
-      // Apply sorting
-      if (options.sortBy) {
-        const ascending = options.sortOrder === 'asc';
-        query = query.order(options.sortBy, { ascending });
-      } else {
-        query = query.order('created_at', { ascending: false });
-      }
+      query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      // Apply pagination with safety defaults
-      const DEFAULT_LIMIT = 20;
-      const MAX_LIMIT = 100;
-      const limit = options.limit 
-        ? Math.min(Math.max(options.limit, 1), MAX_LIMIT) 
-        : DEFAULT_LIMIT;
-      const offset = options.offset ? Math.max(options.offset, 0) : 0;
+      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);

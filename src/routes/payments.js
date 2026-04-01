@@ -3,56 +3,9 @@ const router = express.Router();
 const QRCode = require('qrcode');
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
-const { authenticateToken } = require('../middleware/auth');
-
-let io = null;
-
-router.setIo = (socketIo) => {
-  io = socketIo;
-};
-
-const authenticateAdmin = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    
-    try {
-      const authService = require('../services/authService');
-      const decoded = authService.verifyJWT(token);
-      
-      if (decoded.role === 'admin') {
-        req.user = {
-          userId: decoded.userId,
-          role: decoded.role,
-          phoneNumber: decoded.phoneNumber,
-          verified: true
-        };
-        return next();
-      }
-    } catch {
-      // JWT verification failed
-    }
-    
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. Invalid admin token.'
-    });
-  } catch (error) {
-    console.error('Admin authentication error:', error);
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication failed'
-    });
-  }
-};
+const { authenticateToken, authenticateAdmin } = require('../middleware/auth');
+const notifyAsync = require('../utils/notifyAsync');
+const { parsePagination } = require('../utils/paginationHelper');
 
 /**
  * Generate UPI deep link string
@@ -328,6 +281,7 @@ router.post('/submit-utr', authenticateToken, async (req, res) => {
     }
 
     // Notify admin via socket (if connected)
+    const io = req.app.locals.io;
     if (io) {
       io.emit('payment:utr_submitted', {
         payment_id: updatedPayment.id,
@@ -401,11 +355,12 @@ router.get('/status/:requirementResponseId', authenticateToken, async (req, res)
 // GET /api/payments/my-payments - Get all payments for current user
 router.get('/my-payments', authenticateToken, async (req, res) => {
   try {
-    const { status, limit, offset } = req.query;
+    const { status } = req.query;
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
     const options = {
       status,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined
+      limit,
+      offset
     };
 
     let payments;
@@ -438,10 +393,10 @@ router.get('/my-payments', authenticateToken, async (req, res) => {
 // GET /api/payments/admin/pending - Get all payments pending verification (Admin only)
 router.get('/admin/pending', authenticateAdmin, async (req, res) => {
   try {
-    const { limit, offset } = req.query;
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
     const options = {
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined
+      limit,
+      offset
     };
 
     const payments = await databaseService.getPendingVerificationPayments(options);
@@ -521,6 +476,7 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
       }
 
       // Notify admin that payment 1 is verified and ready for manual M1 payout release
+      const io = req.app.locals.io;
       if (payment.payment_number === 1 && io) {
         io.emit('payment:verified_admin_action_needed', {
           paymentId: updatedPayment.id,
@@ -551,23 +507,18 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
       }
 
       // Send WhatsApp notification to manufacturer (fire and forget)
-      (async () => {
-        try {
-          const manufacturer = await databaseService.findManufacturerProfile(payment.manufacturer_id);
-          if (manufacturer?.phone_number) {
-            const requirement = payment.requirement_response?.requirement || {};
-            
-            // Use different notification for second payment (remaining 50%)
-            if (payment.payment_number === 2) {
-              await whatsappService.notifyRemainingPaymentReceived(manufacturer.phone_number, updatedPayment, requirement);
-            } else {
-              await whatsappService.notifyPaymentVerified(manufacturer.phone_number, updatedPayment, requirement);
-            }
+      notifyAsync(async () => {
+        const manufacturer = await databaseService.findManufacturerProfile(payment.manufacturer_id);
+        if (manufacturer?.phone_number) {
+          const requirement = payment.requirement_response?.requirement || {};
+
+          if (payment.payment_number === 2) {
+            await whatsappService.notifyRemainingPaymentReceived(manufacturer.phone_number, updatedPayment, requirement);
+          } else {
+            await whatsappService.notifyPaymentVerified(manufacturer.phone_number, updatedPayment, requirement);
           }
-        } catch (waError) {
-          console.error('WhatsApp notification error (payment verified):', waError.message);
         }
-      })();
+      }, 'WhatsApp notification (payment verified)');
     } else {
       // Only store verified_by if it's a valid UUID format
       const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.user.userId);
@@ -581,6 +532,7 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
       });
 
       // Notify buyer to retry
+      const io = req.app.locals.io;
       if (io) {
         io.to(`user:${payment.buyer_id}`).emit('payment:rejected', {
           payment_id: updatedPayment.id,
@@ -590,16 +542,12 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
       }
 
       // Send WhatsApp notification to buyer (fire and forget)
-      (async () => {
-        try {
-          const buyer = await databaseService.findBuyerProfile(payment.buyer_id);
-          if (buyer?.phone_number) {
-            await whatsappService.notifyPaymentRejected(buyer.phone_number, updatedPayment, notes);
-          }
-        } catch (waError) {
-          console.error('WhatsApp notification error (payment rejected):', waError.message);
+      notifyAsync(async () => {
+        const buyer = await databaseService.findBuyerProfile(payment.buyer_id);
+        if (buyer?.phone_number) {
+          await whatsappService.notifyPaymentRejected(buyer.phone_number, updatedPayment, notes);
         }
-      })();
+      }, 'WhatsApp notification (payment rejected)');
     }
 
     return res.status(200).json({
@@ -656,6 +604,7 @@ router.post('/refund/:paymentId', authenticateAdmin, async (req, res) => {
     });
 
     // Notify buyer
+    const io = req.app.locals.io;
     if (io) {
       io.to(`user:${payment.buyer_id}`).emit('payment:refunded', {
         payment_id: updatedPayment.id,

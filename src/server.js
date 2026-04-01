@@ -139,16 +139,12 @@ const io = new Server(httpServer, {
   path: process.env.WS_PATH || '/socket.io'
 });
 
+app.locals.io = io;
+
 // Presence tracking (simple in-memory)
 const onlineCounts = new Map(); // userId -> connection count
 
 io.use(socketAuth);
-
-// Pass io instance to routes for real-time updates
-requirementsRoutes.setIo(io);
-paymentsRoutes.setIo(io);
-milestonesRoutes.setIo(io);
-ordersRoutes.setIo(io);
 
 io.on('connection', async (socket) => {
   try {
