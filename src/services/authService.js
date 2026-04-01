@@ -307,6 +307,21 @@ class AuthService {
   }
 
   /**
+   * Check whether a JWT token has an active server-side session.
+   * @param {string} token - JWT token
+   * @returns {Promise<Object|null>} Active session data or null
+   */
+  async findActiveSessionByToken(token) {
+    try {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      return await databaseService.findUserSession(tokenHash);
+    } catch (error) {
+      console.error('Error finding active session by token:', error);
+      throw new Error(`Session lookup failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Get profile by phone number and role
    * @param {string} phoneNumber - Phone number
    * @param {string} role - User role ('buyer' or 'manufacturer')

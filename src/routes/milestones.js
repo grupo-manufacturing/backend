@@ -6,6 +6,13 @@ const { authenticateToken, authenticateAdmin } = require('../middleware/auth');
 const PAYOUT_RATES = require('../constants/payoutRates');
 const notifyAsync = require('../utils/notifyAsync');
 
+const normalizeTransactionRef = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed;
+};
+
 // POST /api/milestones/complete - Manufacturer marks milestone as done
 // For M1: in_production -> milestone_1_pending
 // For M2: milestone_1_done (after M1 paid) -> milestone_2_pending
@@ -246,7 +253,7 @@ router.post('/approve/:responseId', authenticateToken, async (req, res) => {
 router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
   try {
     const { responseId } = req.params;
-    const { milestone, transactionRef, notes } = req.body;
+    const { milestone, transactionRef } = req.body;
 
     if (!milestone || !['m1', 'm2'].includes(milestone)) {
       return res.status(400).json({
@@ -316,11 +323,18 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
       updateData.status = newStatus;
     }
 
-    // Optionally store transaction reference in notes
-    if (transactionRef || notes) {
-      const existingNotes = response.notes || '';
-      const payoutNote = `\n[${milestone.toUpperCase()} Payout - ${new Date().toISOString()}] ${transactionRef || ''} ${notes || ''}`.trim();
-      updateData.notes = existingNotes + payoutNote;
+    const normalizedTransactionRef = normalizeTransactionRef(transactionRef);
+    if (normalizedTransactionRef && normalizedTransactionRef.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'transactionRef must be at most 100 characters'
+      });
+    }
+
+    if (milestone === 'm1') {
+      updateData.m1_transaction_ref = normalizedTransactionRef;
+    } else {
+      updateData.m2_transaction_ref = normalizedTransactionRef;
     }
 
     const updatedResponse = await databaseService.updateRequirementResponse(responseId, updateData);
@@ -461,7 +475,7 @@ router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
 router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) => {
   try {
     const { responseId } = req.params;
-    const { transactionRef, notes } = req.body;
+    const { transactionRef } = req.body;
 
     const response = await databaseService.getRequirementResponseById(responseId);
     if (!response) {
@@ -490,12 +504,14 @@ router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) 
       final_paid_at: new Date().toISOString()
     };
 
-    // Store transaction reference in notes if provided
-    if (transactionRef || notes) {
-      const existingNotes = response.notes || '';
-      const payoutNote = `\n[Final Payout - ${new Date().toISOString()}] ${transactionRef || ''} ${notes || ''}`.trim();
-      updateData.notes = existingNotes + payoutNote;
+    const normalizedTransactionRef = normalizeTransactionRef(transactionRef);
+    if (normalizedTransactionRef && normalizedTransactionRef.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'transactionRef must be at most 100 characters'
+      });
     }
+    updateData.final_transaction_ref = normalizedTransactionRef;
 
     const updatedResponse = await databaseService.updateRequirementResponse(responseId, updateData);
     const requirement = await databaseService.getRequirement(response.requirement_id);

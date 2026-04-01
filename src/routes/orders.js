@@ -6,6 +6,12 @@ const { authenticateToken } = require('../middleware/auth');
 const PAYOUT_RATES = require('../constants/payoutRates');
 const notifyAsync = require('../utils/notifyAsync');
 
+const normalizeText = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+};
+
 // POST /api/orders/ship/:responseId - Manufacturer marks order as shipped
 router.post('/ship/:responseId', authenticateToken, async (req, res) => {
   try {
@@ -18,8 +24,9 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
 
     const { responseId } = req.params;
     const { trackingId, courierName, trackingNumber, shippingProvider, notes } = req.body;
-    const normalizedTrackingId = String(trackingId || trackingNumber || '').trim();
-    const normalizedCourierName = String(courierName || shippingProvider || '').trim();
+    const normalizedTrackingId = normalizeText(trackingId) || normalizeText(trackingNumber);
+    const normalizedCourierName = normalizeText(courierName) || normalizeText(shippingProvider);
+    const normalizedShippingNotes = normalizeText(notes);
 
     if (!normalizedCourierName || !normalizedTrackingId) {
       return res.status(400).json({
@@ -50,17 +57,27 @@ router.post('/ship/:responseId', authenticateToken, async (req, res) => {
       });
     }
 
+    if (normalizedCourierName.length > 100 || normalizedTrackingId.length > 120) {
+      return res.status(400).json({
+        success: false,
+        message: 'Courier name or tracking ID is too long'
+      });
+    }
+
+    if (normalizedShippingNotes && normalizedShippingNotes.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shipping notes must be at most 1000 characters'
+      });
+    }
+
     const updateData = {
       status: 'shipped',
-      shipped_at: new Date().toISOString()
+      shipped_at: new Date().toISOString(),
+      shipping_courier_name: normalizedCourierName,
+      shipping_tracking_id: normalizedTrackingId,
+      shipping_notes: normalizedShippingNotes
     };
-
-    // Store tracking info in notes if provided
-    if (normalizedTrackingId || normalizedCourierName || notes) {
-      const existingNotes = response.notes || '';
-      const shippingNote = `\n[Shipped - ${new Date().toISOString()}] Courier: ${normalizedCourierName} | Tracking ID: ${normalizedTrackingId} ${notes || ''}`.trim();
-      updateData.notes = existingNotes + shippingNote;
-    }
 
     const updatedResponse = await databaseService.updateRequirementResponse(responseId, updateData);
     const requirement = await databaseService.getRequirement(response.requirement_id);

@@ -122,6 +122,12 @@ CREATE TABLE IF NOT EXISTS requirement_responses (
   notes TEXT,
   status VARCHAR(20) DEFAULT 'submitted' CHECK (status IN ('submitted', 'accepted', 'rejected', 'negotiating')),
   accepted_at TIMESTAMP WITH TIME ZONE,
+  m1_transaction_ref VARCHAR(100),
+  m2_transaction_ref VARCHAR(100),
+  final_transaction_ref VARCHAR(100),
+  shipping_courier_name VARCHAR(100),
+  shipping_tracking_id VARCHAR(120),
+  shipping_notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   CONSTRAINT uq_requirement_manufacturer UNIQUE (requirement_id, manufacturer_id)
@@ -278,6 +284,69 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.insert_message_and_update_conversation(
+  p_conversation_id UUID,
+  p_sender_role VARCHAR,
+  p_sender_id UUID,
+  p_body TEXT,
+  p_client_temp_id VARCHAR DEFAULT NULL,
+  p_summary_text TEXT DEFAULT NULL,
+  p_requirement_id UUID DEFAULT NULL
+)
+RETURNS TABLE (
+  id UUID,
+  conversation_id UUID,
+  sender_role VARCHAR,
+  sender_id UUID,
+  body TEXT,
+  requirement_id UUID,
+  created_at TIMESTAMPTZ,
+  is_read BOOLEAN,
+  client_temp_id VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  inserted_message messages%ROWTYPE;
+BEGIN
+  INSERT INTO public.messages (
+    conversation_id,
+    sender_role,
+    sender_id,
+    body,
+    client_temp_id,
+    requirement_id
+  )
+  VALUES (
+    p_conversation_id,
+    p_sender_role,
+    p_sender_id,
+    p_body,
+    p_client_temp_id,
+    p_requirement_id
+  )
+  RETURNING * INTO inserted_message;
+
+  UPDATE public.conversations
+  SET
+    last_message_at = inserted_message.created_at,
+    last_message_text = COALESCE(p_summary_text, inserted_message.body)
+  WHERE conversations.id = p_conversation_id;
+
+  RETURN QUERY
+  SELECT
+    inserted_message.id,
+    inserted_message.conversation_id,
+    inserted_message.sender_role,
+    inserted_message.sender_id,
+    inserted_message.body,
+    inserted_message.requirement_id,
+    inserted_message.created_at,
+    inserted_message.is_read,
+    inserted_message.client_temp_id;
+END;
+$$;
 
 -- ===========================================
 -- TRIGGERS

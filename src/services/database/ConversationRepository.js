@@ -184,38 +184,25 @@ class ConversationRepository {
    */
   async insertMessage(conversationId, senderRole, senderId, body, clientTempId, summaryText, requirementId = null) {
     try {
-      const messageData = {
-        conversation_id: conversationId,
-        sender_role: senderRole,
-        sender_id: senderId,
-        body,
-        client_temp_id: clientTempId
-      };
-      
-      if (requirementId) {
-        messageData.requirement_id = requirementId;
-      }
-      
-      const { data, error } = await supabase
-        .from('messages')
-        .insert([messageData])
-        .select('*')
-        .single();
+      const { data, error } = await supabase.rpc('insert_message_and_update_conversation', {
+        p_conversation_id: conversationId,
+        p_sender_role: senderRole,
+        p_sender_id: senderId,
+        p_body: body,
+        p_client_temp_id: clientTempId || null,
+        p_summary_text: summaryText || body,
+        p_requirement_id: requirementId || null
+      });
+
       if (error) {
         throw new Error(`Failed to insert message: ${error.message}`);
       }
-
-      const updated = await supabase
-        .from('conversations')
-        .update({ last_message_at: data.created_at, last_message_text: summaryText ?? body })
-        .eq('id', conversationId)
-        .select('id')
-        .single();
-      if (updated.error) {
-        console.warn('Failed to update conversation summary:', updated.error.message);
+      const insertedMessage = Array.isArray(data) ? data[0] : data;
+      if (!insertedMessage) {
+        throw new Error('Failed to insert message: RPC returned empty result');
       }
 
-      return data;
+      return insertedMessage;
     } catch (error) {
       console.error('ConversationRepository.insertMessage error:', error);
       throw error;

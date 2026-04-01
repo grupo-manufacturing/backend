@@ -145,6 +145,19 @@ router.post('/refresh-token', async (req, res) => {
 
     const token = authHeader.substring(7);
     const decoded = authService.verifyJWT(token);
+
+    // Enforce active-session validation for non-admin roles so revoked tokens
+    // (e.g. after logout) cannot be used to mint fresh JWTs.
+    if (decoded.role !== 'admin') {
+      const activeSession = await authService.findActiveSessionByToken(token);
+      if (!activeSession || activeSession.profile_id !== decoded.userId || activeSession.profile_type !== decoded.role) {
+        return res.status(401).json({
+          success: false,
+          message: 'Token session is inactive or revoked'
+        });
+      }
+    }
+
     const newToken = authService.generateJWT(decoded.userId, decoded.phoneNumber, decoded.role);
 
     res.status(200).json({
