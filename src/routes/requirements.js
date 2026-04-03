@@ -762,6 +762,9 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
 });
 
 // GET /api/requirements/admin/orders (Admin only)
+// NOTE: This endpoint intentionally returns one row per REQUIREMENT,
+// not per requirement_response, so the Admin Orders tab shows each
+// requirement only once (no duplicates when multiple manufacturers respond).
 router.get('/admin/orders', authenticateAdmin, async (req, res) => {
   try {
     const { sortBy, sortOrder } = normalizeSort(req.query, {
@@ -774,9 +777,8 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
       sortOrder
     };
 
-    // For admin workflows we want requirement_response rows with quoted_price
-    // and their linked requirements & buyers.
-    const orders = await databaseService.getAdminRequirementOrders(options);
+    // Fetch all requirements (acts as orders for admin view)
+    const orders = await databaseService.getAllRequirements(options);
 
     return res.status(200).json({
       success: true,
@@ -784,7 +786,7 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
       count: orders.length
     });
   } catch (error) {
-    console.error('Get admin requirement orders error:', error);
+    console.error('Get orders error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch orders',
