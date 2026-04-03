@@ -764,15 +764,19 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
 // GET /api/requirements/admin/orders (Admin only)
 router.get('/admin/orders', authenticateAdmin, async (req, res) => {
   try {
-    const { sortBy, sortOrder } = normalizeSort(req.query, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
+    const { sortBy, sortOrder } = normalizeSort(req.query, {
+      defaultSortBy: 'created_at',
+      defaultSortOrder: 'desc'
+    });
 
     const options = {
       sortBy,
       sortOrder
     };
 
-    // Fetch all requirements (acts as orders for admin view)
-    const orders = await databaseService.getAllRequirements(options);
+    // For admin workflows we want requirement_response rows with quoted_price
+    // and their linked requirements & buyers.
+    const orders = await databaseService.getAdminRequirementOrders(options);
 
     return res.status(200).json({
       success: true,
@@ -780,7 +784,7 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
       count: orders.length
     });
   } catch (error) {
-    console.error('Get orders error:', error);
+    console.error('Get admin requirement orders error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch orders',
