@@ -66,6 +66,7 @@ const DatabaseService = {
   createRequirement: (...args) => RequirementRepository.createRequirement(...args),
   getBuyerRequirements: (...args) => RequirementRepository.getBuyerRequirements(...args),
   getRequirement: (...args) => RequirementRepository.getRequirement(...args),
+  getRequirementWithBuyer: (...args) => RequirementRepository.getRequirementWithBuyer(...args),
   updateRequirement: (...args) => RequirementRepository.updateRequirement(...args),
   deleteRequirement: (...args) => RequirementRepository.deleteRequirement(...args),
   getBuyerRequirementStatistics: (...args) => RequirementRepository.getBuyerRequirementStatistics(...args),
@@ -81,6 +82,7 @@ const DatabaseService = {
   updateRequirementResponse: (...args) => RequirementRepository.updateRequirementResponse(...args),
   getManufacturerResponses: (...args) => RequirementRepository.getManufacturerResponses(...args),
   getActiveRequirementsForConversation: (...args) => RequirementRepository.getActiveRequirementsForConversation(...args),
+  getPendingMilestonePayouts: (...args) => RequirementRepository.getPendingMilestonePayouts(...args),
 
   // =============================================
   // ORDER METHODS
@@ -91,6 +93,9 @@ const DatabaseService = {
   getBuyerOrders: (...args) => OrderRepository.getBuyerOrders(...args),
   updateOrderStatus: (...args) => OrderRepository.updateOrderStatus(...args),
   getOrders: (...args) => OrderRepository.getOrders(...args),
+  getRequirementResponseOrders: (...args) => OrderRepository.getRequirementResponseOrders(...args),
+  getAdminRequirementOrders: (...args) => OrderRepository.getAdminRequirementOrders(...args),
+  getReadyToShipOrders: (...args) => OrderRepository.getReadyToShipOrders(...args),
 
   // =============================================
   // PAYMENT METHODS
@@ -100,6 +105,7 @@ const DatabaseService = {
   getPaymentWithDetails: (...args) => PaymentRepository.getPaymentWithDetails(...args),
   getPaymentsByResponseId: (...args) => PaymentRepository.getPaymentsByResponseId(...args),
   getPaymentByResponseAndNumber: (...args) => PaymentRepository.getPaymentByResponseAndNumber(...args),
+  getRequirementResponseWithRequirement: (...args) => PaymentRepository.getRequirementResponseWithRequirement(...args),
   updatePayment: (...args) => PaymentRepository.updatePayment(...args),
   getPendingVerificationPayments: (...args) => PaymentRepository.getPendingVerificationPayments(...args),
   getBuyerPayments: (...args) => PaymentRepository.getBuyerPayments(...args),

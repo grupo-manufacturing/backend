@@ -260,25 +260,24 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Assigns requirement_no as GRUPO-RFQ-NNNN (4-digit suffix).
+-- Computes next suffix from the max trailing integer across ALL known historical
+-- formats so numbering stays monotonic even if bad rows used GRUPO-REQ-,
+-- GROUPO-REQ- (typo), or extra leading zeros (e.g. 000033).
 CREATE OR REPLACE FUNCTION generate_requirement_no()
 RETURNS TRIGGER AS $$
 DECLARE
   next_num INTEGER;
   formatted_no VARCHAR(50);
-  max_new_format INTEGER;
-  max_old_format INTEGER;
 BEGIN
-  SELECT COALESCE(MAX(CAST(SUBSTRING(requirement_no FROM '(\d+)$') AS INTEGER)), 0)
-  INTO max_new_format
+  SELECT COALESCE(MAX(
+    CAST(SUBSTRING(requirement_no FROM '([0-9]+)$') AS INTEGER)
+  ), 0)
+  INTO next_num
   FROM requirements
-  WHERE requirement_no LIKE 'GRUPO-RFQ-%';
-  
-  SELECT COALESCE(MAX(CAST(SUBSTRING(requirement_no FROM '(\d+)$') AS INTEGER)), 0)
-  INTO max_old_format
-  FROM requirements
-  WHERE requirement_no LIKE 'GROUPO-REQ-%';
-  
-  next_num := GREATEST(max_new_format, max_old_format) + 1;
+  WHERE requirement_no ~ '^(GRUPO|GROUPO)-(RFQ|REQ)-[0-9]+$';
+
+  next_num := next_num + 1;
   formatted_no := 'GRUPO-RFQ-' || LPAD(next_num::TEXT, 4, '0');
   NEW.requirement_no := formatted_no;
   RETURN NEW;

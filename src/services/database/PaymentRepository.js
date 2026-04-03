@@ -1,10 +1,9 @@
 /**
  * Payment Repository - Payments management for the escrow + milestone system
  */
-const { supabase } = require('./BaseRepository');
-const { normalizePagination } = require('../../utils/paginationHelper');
+const { BaseRepository } = require('./BaseRepository');
 
-class PaymentRepository {
+class PaymentRepository extends BaseRepository {
   /**
    * Create a new payment record
    * @param {Object} paymentData - Payment data
@@ -12,7 +11,7 @@ class PaymentRepository {
    */
   async createPayment(paymentData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('payments')
         .insert([paymentData])
         .select()
@@ -36,13 +35,13 @@ class PaymentRepository {
    */
   async getPaymentById(paymentId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('payments')
         .select('*')
         .eq('id', paymentId)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to fetch payment: ${error.message}`);
       }
 
@@ -60,7 +59,7 @@ class PaymentRepository {
    */
   async getPaymentWithDetails(paymentId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('payments')
         .select(`
           *,
@@ -84,7 +83,7 @@ class PaymentRepository {
         .eq('id', paymentId)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to fetch payment with details: ${error.message}`);
       }
 
@@ -102,7 +101,7 @@ class PaymentRepository {
    */
   async getPaymentsByResponseId(requirementResponseId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('payments')
         .select('*')
         .eq('requirement_response_id', requirementResponseId)
@@ -127,20 +126,47 @@ class PaymentRepository {
    */
   async getPaymentByResponseAndNumber(requirementResponseId, paymentNumber) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('payments')
         .select('*')
         .eq('requirement_response_id', requirementResponseId)
         .eq('payment_number', paymentNumber)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to fetch payment: ${error.message}`);
       }
 
       return data || null;
     } catch (error) {
       console.error('PaymentRepository.getPaymentByResponseAndNumber error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a requirement response with requirement in one query
+   * @param {string} requirementResponseId - Requirement response ID
+   * @returns {Promise<Object|null>} Response with nested requirement or null
+   */
+  async getRequirementResponseWithRequirement(requirementResponseId) {
+    try {
+      const { data, error } = await this.supabase
+        .from('requirement_responses')
+        .select(`
+          *,
+          requirement:requirements(*)
+        `)
+        .eq('id', requirementResponseId)
+        .single();
+
+      if (error && !this.isNotFoundError(error)) {
+        throw new Error(`Failed to fetch requirement response with requirement: ${error.message}`);
+      }
+
+      return data || null;
+    } catch (error) {
+      console.error('PaymentRepository.getRequirementResponseWithRequirement error:', error);
       throw error;
     }
   }
@@ -153,7 +179,7 @@ class PaymentRepository {
    */
   async updatePayment(paymentId, updateData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('payments')
         .update({
           ...updateData,
@@ -181,9 +207,9 @@ class PaymentRepository {
    */
   async getPendingVerificationPayments(options = {}) {
     try {
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
 
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('payments')
         .select(`
           *,
@@ -225,9 +251,9 @@ class PaymentRepository {
    */
   async getBuyerPayments(buyerId, options = {}) {
     try {
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
-      let query = supabase
+      let query = this.supabase
         .from('payments')
         .select(`
           *,
@@ -269,9 +295,9 @@ class PaymentRepository {
    */
   async getManufacturerPayments(manufacturerId, options = {}) {
     try {
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
-      let query = supabase
+      let query = this.supabase
         .from('payments')
         .select(`
           *,

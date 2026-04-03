@@ -222,28 +222,7 @@ router.get('/ready-to-ship', authenticateToken, async (req, res) => {
       });
     }
 
-    const supabase = require('../config/supabase');
-    
-    const { data: orders, error } = await supabase
-      .from('requirement_responses')
-      .select(`
-        *,
-        requirement:requirements(
-          id,
-          requirement_no,
-          product_type,
-          quantity,
-          buyer_id,
-          buyer:buyer_profiles(id, full_name, phone_number, business_address)
-        )
-      `)
-      .eq('manufacturer_id', req.user.userId)
-      .eq('status', 'cleared_to_ship')
-      .order('updated_at', { ascending: false });
-
-    if (error) {
-      throw new Error(error.message);
-    }
+    const orders = await databaseService.getReadyToShipOrders(req.user.userId);
 
     return res.status(200).json({
       success: true,

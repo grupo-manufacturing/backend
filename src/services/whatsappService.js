@@ -1,30 +1,39 @@
 const axios = require('axios');
 
+const API_BASE_URL = 'https://wasenderapi.com/api';
+const API_ENDPOINTS = {
+  ON_WHATSAPP: '/on-whatsapp',
+  SEND_MESSAGE: '/send-message',
+  USER: '/user'
+};
+const PORTAL_URLS = {
+  MANUFACTURER: 'https://grupo.in/manufacturer-portal',
+  BUYER: 'https://grupo.in/buyer-portal'
+};
+
 class WhatsAppService {
   constructor() {
-    this.baseUrl = 'https://wasenderapi.com/api';
     this.apiKey = process.env.WASENDER_API_KEY;
     this.enabled = !!this.apiKey;
+    this.client = this.enabled
+      ? axios.create({
+          baseURL: API_BASE_URL,
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          timeout: 30000
+        })
+      : null;
     
     if (!this.enabled) {
       console.warn('[WhatsAppService] WASENDER_API_KEY not configured. WhatsApp notifications disabled.');
     }
   }
 
-  /**
-   * Get axios instance with auth headers
-   * @returns {import('axios').AxiosInstance}
-   */
-  getClient() {
-    return axios.create({
-      baseURL: this.baseUrl,
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      timeout: 30000 // 30 second timeout
-    });
+  buildError(message, code = 'WHATSAPP_ERROR') {
+    return { success: false, error: { code, message } };
   }
 
   /**
@@ -56,13 +65,12 @@ class WhatsAppService {
   async isOnWhatsApp(phoneNumber) {
     if (!this.enabled) {
       console.warn('[WhatsAppService] Service not enabled');
-      return { exists: false };
+      return { exists: false, error: { code: 'WHATSAPP_NOT_CONFIGURED', message: 'WhatsApp service not configured' } };
     }
 
     try {
       const jid = this.formatToJid(phoneNumber);
-      const client = this.getClient();
-      const response = await client.get(`/on-whatsapp/${jid}`);
+      const response = await this.client.get(`${API_ENDPOINTS.ON_WHATSAPP}/${jid}`);
       
       return {
         exists: response.data?.exists === true || response.data?.onWhatsApp === true,
@@ -70,7 +78,7 @@ class WhatsAppService {
       };
     } catch (error) {
       console.error('[WhatsAppService] Error checking WhatsApp status:', error.message);
-      return { exists: false };
+      return { exists: false, error: { code: 'WHATSAPP_STATUS_CHECK_FAILED', message: error.message } };
     }
   }
 
@@ -78,23 +86,22 @@ class WhatsAppService {
    * Send a text message via WhatsApp
    * @param {string} phoneNumber - Recipient phone number in E.164 format
    * @param {string} message - Message text to send
-   * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
+   * @returns {Promise<{success: boolean, messageId?: string, error?: {code: string, message: string}}>}
    */
   async sendMessage(phoneNumber, message) {
     if (!this.enabled) {
       console.warn('[WhatsAppService] Service not enabled. Message not sent.');
-      return { success: false, error: 'WhatsApp service not configured' };
+      return this.buildError('WhatsApp service not configured', 'WHATSAPP_NOT_CONFIGURED');
     }
 
     if (!phoneNumber || !message) {
-      return { success: false, error: 'Phone number and message are required' };
+      return this.buildError('Phone number and message are required', 'WHATSAPP_INVALID_INPUT');
     }
 
     try {
-      const client = this.getClient();
       const to = this.formatPhoneNumber(phoneNumber);
       
-      const response = await client.post('/send-message', {
+      const response = await this.client.post(API_ENDPOINTS.SEND_MESSAGE, {
         to: to,
         text: message
       });
@@ -109,25 +116,21 @@ class WhatsAppService {
       const errorMessage = error.response?.data?.message || error.message;
       console.error('[WhatsAppService] Error sending message:', errorMessage);
       
-      return {
-        success: false,
-        error: errorMessage
-      };
+      return this.buildError(errorMessage, 'WHATSAPP_SEND_FAILED');
     }
   }
 
   /**
    * Get session user info (verify API connection)
-   * @returns {Promise<{success: boolean, user?: object, error?: string}>}
+   * @returns {Promise<{success: boolean, user?: object, error?: {code: string, message: string}}>}
    */
   async getSessionInfo() {
     if (!this.enabled) {
-      return { success: false, error: 'WhatsApp service not configured' };
+      return this.buildError('WhatsApp service not configured', 'WHATSAPP_NOT_CONFIGURED');
     }
 
     try {
-      const client = this.getClient();
-      const response = await client.get('/user');
+      const response = await this.client.get(API_ENDPOINTS.USER);
       
       return {
         success: true,
@@ -137,10 +140,7 @@ class WhatsAppService {
       const errorMessage = error.response?.data?.message || error.message;
       console.error('[WhatsAppService] Error getting session info:', errorMessage);
       
-      return {
-        success: false,
-        error: errorMessage
-      };
+      return this.buildError(errorMessage, 'WHATSAPP_SESSION_INFO_FAILED');
     }
   }
 
@@ -152,7 +152,7 @@ class WhatsAppService {
    * Send notification for new requirement (to manufacturers)
    * @param {string} phoneNumber - Manufacturer phone number
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyNewRequirement(phoneNumber, requirement) {
     const message = `🔔 *New Requirement on Grupo!*
@@ -162,7 +162,7 @@ ${requirement.quantity ? `📊 Quantity: ${requirement.quantity.toLocaleString()
 ${requirement.product_type ? `🏷️ Type: ${requirement.product_type}` : ''}
 
 Login to your Grupo manufacturer portal to submit a quote!
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -172,7 +172,7 @@ https://grupo.in/manufacturer-portal`;
    * @param {string} phoneNumber - Buyer phone number
    * @param {object} response - Response details
    * @param {object} manufacturer - Manufacturer details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyNewRequirementResponse(phoneNumber, response, manufacturer) {
     const message = `🎉 *New Quote Received on Grupo!*
@@ -180,7 +180,7 @@ https://grupo.in/manufacturer-portal`;
 ${manufacturer?.unit_name || 'A manufacturer'} has responded to your requirement!
 
 Login to your Grupo buyer portal to review and respond!
-https://grupo.in/buyer-portal`;
+${PORTAL_URLS.BUYER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -190,7 +190,7 @@ https://grupo.in/buyer-portal`;
    * @param {string} phoneNumber - Manufacturer phone number
    * @param {string} status - New status (accepted, rejected)
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyResponseStatusUpdate(phoneNumber, status, requirement) {
     const statusEmoji = status === 'accepted' ? '✅' : status === 'rejected' ? '❌' : '💬';
@@ -203,7 +203,7 @@ https://grupo.in/buyer-portal`;
 Your response for requirement ${requirementIdentifier} has been ${statusText}.
 
 Login to your Grupo manufacturer portal for more details!
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -217,7 +217,7 @@ https://grupo.in/manufacturer-portal`;
    * @param {string} phoneNumber - Manufacturer phone number
    * @param {object} payment - Payment details
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyPaymentVerified(phoneNumber, payment, requirement) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
@@ -235,7 +235,7 @@ Amount Received (50% advance) has been verified for requirement ${requirementId}
 ✅ Please wait for the M1 Payout to be transferred before starting production.
 
 Login to your Grupo manufacturer portal to update milestones.
-https://grupo.in/manufacturer-portal`
+${PORTAL_URLS.MANUFACTURER}`
       : `💰 *Final Payment Received - Ship Now!*
 
 Amount Received (remaining 50%) has been verified for requirement ${requirementId}.
@@ -243,7 +243,7 @@ Amount Received (remaining 50%) has been verified for requirement ${requirementI
 📦 Please ship the order and share tracking details with the buyer.
 ${paymentReferenceLine}
 
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -253,7 +253,7 @@ https://grupo.in/manufacturer-portal`;
    * @param {string} phoneNumber - Buyer phone number
    * @param {object} payment - Payment details
    * @param {string} reason - Rejection reason
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyPaymentRejected(phoneNumber, payment, reason) {
     const paymentReferenceLine = payment?.utr_number
@@ -269,7 +269,7 @@ ${reason ? `Reason: ${reason}` : ''}
 Please retry the payment with the correct UTR number.
 ${paymentReferenceLine}
 
-https://grupo.in/buyer-portal`;
+${PORTAL_URLS.BUYER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -284,7 +284,7 @@ https://grupo.in/buyer-portal`;
    * @param {string} milestone - 'm1' or 'm2'
    * @param {object} requirement - Requirement details
    * @param {object} manufacturer - Manufacturer details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyMilestonePendingApproval(phoneNumber, milestone, requirement, manufacturer) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
@@ -298,7 +298,7 @@ ${manufacturerName} has marked ${milestoneLabel} as complete for requirement ${r
 
 Please review the samples/progress in your chat and approve to release the milestone payment.
 
-https://grupo.in/buyer-portal`;
+${PORTAL_URLS.BUYER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -308,7 +308,7 @@ https://grupo.in/buyer-portal`;
    * @param {string} phoneNumber - Manufacturer phone number
    * @param {string} milestone - 'm1' or 'm2'
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyMilestoneApproved(phoneNumber, milestone, requirement) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
@@ -320,7 +320,7 @@ The buyer has approved ${milestoneLabel} for requirement ${requirementId}.
 
 We'll notify you about the shipping once the buyer pays the remaining 50%.
 
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -329,14 +329,11 @@ https://grupo.in/manufacturer-portal`;
    * Notify manufacturer that milestone payout has been transferred
    * @param {string} phoneNumber - Manufacturer phone number
    * @param {string} milestone - 'm1' or 'm2'
-   * @param {number} payoutAmount - Amount transferred
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
-  async notifyMilestonePayoutCompleted(phoneNumber, milestone, payoutAmount, requirement, transactionRef) {
+  async notifyMilestonePayoutCompleted(phoneNumber, milestone, requirement, transactionRef) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    // Intentionally not displaying rupee amounts in WhatsApp notifications.
-    void payoutAmount;
 
     const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
     
@@ -354,7 +351,7 @@ Payout transferred (25% milestone) for requirement ${requirementId}.${nextStepMe
 
 ${paymentReferenceLine}
 
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -369,7 +366,7 @@ https://grupo.in/manufacturer-portal`;
    * @param {object} requirement - Requirement details
    * @param {string} trackingNumber - Optional tracking number
    * @param {string} shippingProvider - Optional shipping provider
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyOrderShipped(phoneNumber, requirement, trackingNumber, shippingProvider) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
@@ -387,7 +384,7 @@ Great news! Requirement ${requirementId} has been dispatched by the manufacturer
 
 ${trackingInfo}
 
-https://grupo.in/buyer-portal`;
+${PORTAL_URLS.BUYER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -397,7 +394,7 @@ https://grupo.in/buyer-portal`;
    * @param {string} phoneNumber - Manufacturer phone number
    * @param {object} payment - Payment details
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyRemainingPaymentReceived(phoneNumber, payment, requirement) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
@@ -415,7 +412,7 @@ Amount Received (remaining 50%) has been verified for requirement ${requirementI
 
 ${paymentReferenceLine}
 
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -428,7 +425,7 @@ https://grupo.in/manufacturer-portal`;
    * Notify manufacturer that buyer confirmed delivery
    * @param {string} phoneNumber - Manufacturer phone number
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
   async notifyDeliveryConfirmed(phoneNumber, requirement) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
@@ -439,7 +436,7 @@ The buyer has confirmed receiving requirement ${requirementId}.
 
 The admin will process the final payout shortly. You'll be notified once the payment is transferred.
 
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }
@@ -447,14 +444,11 @@ https://grupo.in/manufacturer-portal`;
   /**
    * Notify manufacturer that final payout has been transferred and order is complete
    * @param {string} phoneNumber - Manufacturer phone number
-   * @param {number} payoutAmount - Final payout amount
    * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
    */
-  async notifyFinalPayoutCompleted(phoneNumber, payoutAmount, requirement, transactionRef) {
+  async notifyFinalPayoutCompleted(phoneNumber, requirement, transactionRef) {
     const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    // Intentionally not displaying rupee amounts in WhatsApp notifications.
-    void payoutAmount;
 
     const paymentReferenceLine = transactionRef
       ? `\n\nPayment Reference : ${transactionRef}`
@@ -468,7 +462,7 @@ Thank you for a successful order!
 
 ${paymentReferenceLine}
 
-https://grupo.in/manufacturer-portal`;
+${PORTAL_URLS.MANUFACTURER}`;
 
     return this.sendMessage(phoneNumber, message);
   }

@@ -1,11 +1,10 @@
 /**
  * Order Repository - Orders management
  */
-const { supabase } = require('./BaseRepository');
-const { normalizePagination } = require('../../utils/paginationHelper');
+const { BaseRepository } = require('./BaseRepository');
 const { applySorting } = require('../../utils/queryOptionsHelper');
 
-class OrderRepository {
+class OrderRepository extends BaseRepository {
   /**
    * Create a new order
    * @param {Object} orderData - Order data (buyer_id, manufacturer_id, design_id, quantity, price_per_unit, total_price)
@@ -13,7 +12,7 @@ class OrderRepository {
    */
   async createOrder(orderData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('orders')
         .insert([orderData])
         .select(`
@@ -43,7 +42,7 @@ class OrderRepository {
    */
   async getManufacturerOrders(manufacturerId, options = {}) {
     try {
-      let query = supabase
+      let query = this.supabase
         .from('orders')
         .select(`
           *,
@@ -58,7 +57,7 @@ class OrderRepository {
       }
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
       query = query.limit(limit).range(offset, offset + limit - 1);
 
       const { data, error } = await query;
@@ -81,7 +80,7 @@ class OrderRepository {
    */
   async getOrder(orderId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('orders')
         .select(`
           *,
@@ -111,7 +110,7 @@ class OrderRepository {
    */
   async getBuyerOrders(buyerId, options = {}) {
     try {
-      let query = supabase
+      let query = this.supabase
         .from('orders')
         .select(`
           *,
@@ -126,7 +125,7 @@ class OrderRepository {
       }
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
       query = query.limit(limit).range(offset, offset + limit - 1);
 
       const { data, error } = await query;
@@ -150,7 +149,7 @@ class OrderRepository {
    */
   async updateOrderStatus(orderId, status) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('orders')
         .update({
           status,
@@ -177,14 +176,14 @@ class OrderRepository {
   }
 
   /**
-   * Get all orders (requirements with responses) - can be filtered by status
-   * Note: This queries requirement_responses table, not orders table
+   * Get requirement-response orders for admin workflows.
+   * Note: This queries requirement_responses table, not orders table.
    * @param {Object} options - Query options (status filter, sorting, pagination)
-   * @returns {Promise<Array>} Array of orders with buyer and manufacturer info
+   * @returns {Promise<Array>} Array of requirement-response orders with buyer and manufacturer info
    */
-  async getOrders(options = {}) {
+  async getRequirementResponseOrders(options = {}) {
     try {
-      let query = supabase
+      let query = this.supabase
         .from('requirement_responses')
         .select(`
           *,
@@ -207,7 +206,7 @@ class OrderRepository {
       }
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
       query = query.limit(limit).range(offset, offset + limit - 1);
 
       const { data, error } = await query;
@@ -218,7 +217,64 @@ class OrderRepository {
 
       return data || [];
     } catch (error) {
-      console.error('OrderRepository.getOrders error:', error);
+      console.error('OrderRepository.getRequirementResponseOrders error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * @deprecated Use getRequirementResponseOrders for clarity.
+   */
+  async getOrders(options = {}) {
+    return this.getRequirementResponseOrders(options);
+  }
+
+  /**
+   * Get admin requirement-response orders (clearer alias for getOrders)
+   * @param {Object} options - Query options (status filter, sorting, pagination)
+   * @returns {Promise<Array>} Array of requirement-response orders
+   */
+  async getAdminRequirementOrders(options = {}) {
+    return this.getRequirementResponseOrders(options);
+  }
+
+  /**
+   * Get manufacturer orders that are cleared_to_ship.
+   * @param {string} manufacturerId - Manufacturer ID
+   * @param {Object} options - Query options (sorting, pagination)
+   * @returns {Promise<Array>} Ready-to-ship orders
+   */
+  async getReadyToShipOrders(manufacturerId, options = {}) {
+    try {
+      let query = this.supabase
+        .from('requirement_responses')
+        .select(`
+          *,
+          requirement:requirements(
+            id,
+            requirement_no,
+            product_type,
+            quantity,
+            buyer_id,
+            buyer:buyer_profiles(id, full_name, phone_number, business_address)
+          )
+        `)
+        .eq('manufacturer_id', manufacturerId)
+        .eq('status', 'cleared_to_ship')
+        .order('updated_at', { ascending: false });
+
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
+      query = query.limit(limit).range(offset, offset + limit - 1);
+
+      const { data, error } = await query;
+
+      if (error) {
+        throw new Error(`Failed to fetch ready-to-ship orders: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('OrderRepository.getReadyToShipOrders error:', error);
       throw error;
     }
   }

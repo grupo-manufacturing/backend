@@ -1,38 +1,37 @@
 /**
  * Conversation Repository - Conversations and Messages management
  */
-const { supabase } = require('./BaseRepository');
-const { normalizePagination } = require('../../utils/paginationHelper');
+const { BaseRepository } = require('./BaseRepository');
 
-class ConversationRepository {
+class ConversationRepository extends BaseRepository {
   /**
    * Get or create a conversation between a buyer and a manufacturer
    */
   async getOrCreateConversation(buyerId, manufacturerId) {
     try {
       // Try to find existing
-      let { data, error } = await supabase
+      let { data, error } = await this.supabase
         .from('conversations')
         .select('*')
         .eq('buyer_id', buyerId)
         .eq('manufacturer_id', manufacturerId)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to fetch conversation: ${error.message}`);
       }
 
       if (!data) {
         // Create new conversation
-        const insert = await supabase
+        const insert = await this.supabase
           .from('conversations')
           .insert([{ buyer_id: buyerId, manufacturer_id: manufacturerId }])
           .select('*')
           .single();
         if (insert.error) {
           // If unique constraint hit due to race, fetch again
-          if (insert.error.code === '23505') {
-            const retry = await supabase
+          if (this.isUniqueViolation(insert.error)) {
+            const retry = await this.supabase
               .from('conversations')
               .select('*')
               .eq('buyer_id', buyerId)
@@ -59,9 +58,9 @@ class ConversationRepository {
    */
   async listConversations(userId, role, { limit = 50, offset = 0 } = {}) {
     try {
-      const normalized = normalizePagination({ limit, offset }, { defaultLimit: 50, maxLimit: 100 });
+      const normalized = this.normalizePagination({ limit, offset }, { defaultLimit: 50, maxLimit: 100 });
       // Build the main query - select only fields needed for list view to reduce payload size
-      let query = supabase
+      let query = this.supabase
         .from('conversations')
         .select('id, buyer_id, manufacturer_id, last_message_text, last_message_at, created_at')
         .order('last_message_at', { ascending: false, nullsFirst: false })
@@ -88,19 +87,19 @@ class ConversationRepository {
 
       const conversationIds = conversations.map(c => c.id);
 
-      // Batch fetch unread counts for all conversations in a single query
-      const { data: unreadMessages, error: unreadError } = await supabase
+      // Batch fetch unread counts per conversation in a single grouped query
+      const { data: unreadCounts, error: unreadError } = await this.supabase
         .from('messages')
-        .select('conversation_id')
+        .select('conversation_id, unread_count:count(*)')
         .in('conversation_id', conversationIds)
         .eq('is_read', false)
         .neq('sender_id', userId);
 
-      // Count unread messages per conversation
+      // Map grouped unread counts by conversation_id
       const unreadCountsMap = {};
-      if (!unreadError && unreadMessages && Array.isArray(unreadMessages)) {
-        unreadMessages.forEach(msg => {
-          unreadCountsMap[msg.conversation_id] = (unreadCountsMap[msg.conversation_id] || 0) + 1;
+      if (!unreadError && unreadCounts && Array.isArray(unreadCounts)) {
+        unreadCounts.forEach((row) => {
+          unreadCountsMap[row.conversation_id] = Number(row.unread_count) || 0;
         });
       } else if (unreadError) {
         console.error('ConversationRepository.listConversations unread count error:', unreadError);
@@ -118,7 +117,7 @@ class ConversationRepository {
       // Batch fetch all buyer profiles in one query
       let buyerProfilesMap = {};
       if (buyerIds.size > 0) {
-        const { data: buyers, error: buyerError } = await supabase
+        const { data: buyers, error: buyerError } = await this.supabase
           .from('buyer_profiles')
           .select('id, buyer_identifier, full_name')
           .in('id', Array.from(buyerIds));
@@ -135,7 +134,7 @@ class ConversationRepository {
       // Batch fetch all manufacturer profiles in one query
       let manufacturerProfilesMap = {};
       if (manufacturerIds.size > 0) {
-        const { data: manufacturers, error: manufacturerError } = await supabase
+        const { data: manufacturers, error: manufacturerError } = await this.supabase
           .from('manufacturer_profiles')
           .select('id, manufacturer_id, unit_name')
           .in('id', Array.from(manufacturerIds));
@@ -168,7 +167,7 @@ class ConversationRepository {
    * Check if user is participant of conversation
    */
   async getConversation(conversationId) {
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('conversations')
       .select('*')
       .eq('id', conversationId)
@@ -184,7 +183,7 @@ class ConversationRepository {
    */
   async insertMessage(conversationId, senderRole, senderId, body, clientTempId, summaryText, requirementId = null) {
     try {
-      const { data, error } = await supabase.rpc('insert_message_and_update_conversation', {
+      const { data, error } = await this.supabase.rpc('insert_message_and_update_conversation', {
         p_conversation_id: conversationId,
         p_sender_role: senderRole,
         p_sender_id: senderId,
@@ -235,7 +234,7 @@ class ConversationRepository {
         duration: att.duration
       }));
 
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('message_attachments')
         .insert(attachmentRecords)
         .select('*');
@@ -259,14 +258,14 @@ class ConversationRepository {
    */
   async listMessagesWithAttachments(conversationId, { before, limit = 50, requirementId = null, normalOnly = false } = {}) {
     try {
-      let query = supabase
+      let query = this.supabase
         .from('messages')
         .select(`
           *,
           attachments:message_attachments(*)
         `)
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: true })
         .limit(limit);
 
       if (before) {
@@ -285,8 +284,7 @@ class ConversationRepository {
       if (error) {
         throw new Error(`Failed to list messages with attachments: ${error.message}`);
       }
-      // return in ascending chronological order for UI
-      return (data || []).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      return data || [];
     } catch (error) {
       console.error('ConversationRepository.listMessagesWithAttachments error:', error);
       throw error;
@@ -298,7 +296,7 @@ class ConversationRepository {
    */
   async markRead(conversationId, readerUserId, upToIsoTimestamp) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('messages')
         .update({ is_read: true })
         .eq('conversation_id', conversationId)

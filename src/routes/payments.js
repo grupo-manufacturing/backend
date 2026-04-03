@@ -1,25 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const QRCode = require('qrcode');
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
 const { authenticateToken, authenticateAdmin } = require('../middleware/auth');
 const notifyAsync = require('../utils/notifyAsync');
 const { parsePagination } = require('../utils/paginationHelper');
-
-/**
- * Generate UPI deep link string
- * @param {number} amount - Amount in INR
- * @param {string} responseId - Requirement response ID for transaction note
- * @returns {string} UPI deep link
- */
-function generateUpiLink(amount, responseId) {
-  const upiVpa = process.env.UPI_VPA || 'groupo@hdfc';
-  const upiName = process.env.UPI_DISPLAY_NAME || 'Groupo';
-  const transactionNote = `Order ${responseId.slice(0, 8)}`;
-  
-  return `upi://pay?pa=${encodeURIComponent(upiVpa)}&pn=${encodeURIComponent(upiName)}&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
-}
+const { generateQrImageBase64, buildQrResponseData } = require('../utils/paymentQrHelper');
+const { isUuidV4 } = require('../utils/uuidHelper');
 
 // POST /api/payments/create-qr - Generate QR code for payment (Buyer only)
 router.post('/create-qr', authenticateToken, async (req, res) => {
@@ -47,9 +34,8 @@ router.post('/create-qr', authenticateToken, async (req, res) => {
       });
     }
 
-    // Get the requirement response
-    const response = await databaseService.getRequirementResponseById(requirement_response_id);
-    if (!response) {
+    const responseWithRequirement = await databaseService.getRequirementResponseWithRequirement(requirement_response_id);
+    if (!responseWithRequirement) {
       return res.status(404).json({
         success: false,
         message: 'Requirement response not found'
@@ -57,7 +43,7 @@ router.post('/create-qr', authenticateToken, async (req, res) => {
     }
 
     // Verify buyer owns this requirement
-    const requirement = await databaseService.getRequirement(response.requirement_id);
+    const requirement = responseWithRequirement.requirement;
     if (!requirement || requirement.buyer_id !== req.user.userId) {
       return res.status(403).json({
         success: false,
@@ -101,24 +87,12 @@ router.post('/create-qr', authenticateToken, async (req, res) => {
           });
         }
 
-        const upiLink = generateUpiLink(existingPayment.amount, requirement_response_id);
-        const qrImageDataUrl = await QRCode.toDataURL(upiLink, {
-          width: 300,
-          margin: 2,
-          color: { dark: '#000000', light: '#ffffff' }
-        });
+        const qrImageDataUrl = await generateQrImageBase64(existingPayment.amount, requirement_response_id);
 
         return res.status(200).json({
           success: true,
           message: existingPayment.status === 'failed' ? 'Payment QR regenerated' : 'Payment QR retrieved',
-          data: {
-            payment_id: existingPayment.id,
-            qr_image_base64: qrImageDataUrl,
-            amount: existingPayment.amount,
-            upi_id: process.env.UPI_VPA || 'groupo@hdfc',
-            upi_name: process.env.UPI_DISPLAY_NAME || 'Groupo',
-            payment_number: existingPayment.payment_number
-          }
+          data: buildQrResponseData(existingPayment, qrImageDataUrl)
         });
       }
     }
@@ -138,13 +112,13 @@ router.post('/create-qr', authenticateToken, async (req, res) => {
     }
 
     // Calculate amount: 50% of quoted price for each payment
-    const amount = parseFloat(response.quoted_price) * 0.5;
+    const amount = parseFloat(responseWithRequirement.quoted_price) * 0.5;
 
     // Create payment record (with race condition handling)
     const paymentData = {
       requirement_response_id,
       buyer_id: req.user.userId,
-      manufacturer_id: response.manufacturer_id,
+      manufacturer_id: responseWithRequirement.manufacturer_id,
       payment_number,
       amount,
       status: 'pending'
@@ -162,24 +136,12 @@ router.post('/create-qr', authenticateToken, async (req, res) => {
         );
         
         if (racePayment) {
-          const upiLink = generateUpiLink(racePayment.amount, requirement_response_id);
-          const qrImageDataUrl = await QRCode.toDataURL(upiLink, {
-            width: 300,
-            margin: 2,
-            color: { dark: '#000000', light: '#ffffff' }
-          });
+          const qrImageDataUrl = await generateQrImageBase64(racePayment.amount, requirement_response_id);
 
           return res.status(200).json({
             success: true,
             message: 'Payment QR retrieved',
-            data: {
-              payment_id: racePayment.id,
-              qr_image_base64: qrImageDataUrl,
-              amount: racePayment.amount,
-              upi_id: process.env.UPI_VPA || 'groupo@hdfc',
-              upi_name: process.env.UPI_DISPLAY_NAME || 'Groupo',
-              payment_number: racePayment.payment_number
-            }
+            data: buildQrResponseData(racePayment, qrImageDataUrl)
           });
         }
       }
@@ -188,24 +150,12 @@ router.post('/create-qr', authenticateToken, async (req, res) => {
     }
 
     // Generate UPI QR code
-    const upiLink = generateUpiLink(amount, requirement_response_id);
-    const qrImageDataUrl = await QRCode.toDataURL(upiLink, {
-      width: 300,
-      margin: 2,
-      color: { dark: '#000000', light: '#ffffff' }
-    });
+    const qrImageDataUrl = await generateQrImageBase64(amount, requirement_response_id);
 
     return res.status(201).json({
       success: true,
       message: 'Payment QR generated successfully',
-      data: {
-        payment_id: payment.id,
-        qr_image_base64: qrImageDataUrl,
-        amount: payment.amount,
-        upi_id: process.env.UPI_VPA || 'groupo@hdfc',
-        upi_name: process.env.UPI_DISPLAY_NAME || 'Groupo',
-        payment_number: payment.payment_number
-      }
+      data: buildQrResponseData(payment, qrImageDataUrl)
     });
   } catch (error) {
     console.error('Create payment QR error:', error);
@@ -265,6 +215,7 @@ router.post('/submit-utr', authenticateToken, async (req, res) => {
       });
     }
 
+    const previousPaymentStatus = payment.status;
     const updatedPayment = await databaseService.updatePayment(payment_id, {
       utr_number: utr_number.trim().toUpperCase(),
       status: 'pending_verification',
@@ -273,7 +224,7 @@ router.post('/submit-utr', authenticateToken, async (req, res) => {
 
     // Requirement-level lifecycle is intentionally simple:
     // pending -> accepted on first UTR submit, rejected on buyer rejection only.
-    if (updatedPayment.payment_number === 1) {
+    if (updatedPayment.payment_number === 1 && previousPaymentStatus === 'pending') {
       const response = await databaseService.getRequirementResponseById(updatedPayment.requirement_response_id);
       if (response?.requirement_id) {
         await databaseService.updateRequirement(response.requirement_id, { status: 'accepted' });
@@ -449,7 +400,7 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
 
     if (approved) {
       // Only store verified_by if it's a valid UUID format
-      const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.user.userId);
+      const isValidUuid = isUuidV4(req.user.userId);
       
       updatedPayment = await databaseService.updatePayment(paymentId, {
         status: 'paid',
@@ -521,7 +472,7 @@ router.post('/verify/:paymentId', authenticateAdmin, async (req, res) => {
       }, 'WhatsApp notification (payment verified)');
     } else {
       // Only store verified_by if it's a valid UUID format
-      const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.user.userId);
+      const isValidUuid = isUuidV4(req.user.userId);
       const adminNote = isValidUuid ? '' : `Rejected by admin: ${req.user.userId}. `;
       
       updatedPayment = await databaseService.updatePayment(paymentId, {

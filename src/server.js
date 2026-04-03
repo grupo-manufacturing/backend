@@ -8,6 +8,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const socketAuth = require('./middleware/wsAuth');
 const databaseService = require('./services/databaseService');
+const authService = require('./services/authService');
 const { buildMessageSummary } = require('./utils/messageSummary');
 const supabase = require('./config/supabase');
 
@@ -257,6 +258,15 @@ io.on('connection', async (socket) => {
     socket.disconnect(true);
   }
 });
+
+// Periodic auth data cleanup (expired OTPs/sessions)
+setInterval(async () => {
+  try {
+    await authService.cleanupExpiredData();
+  } catch (error) {
+    console.error('Scheduled cleanup failed:', error);
+  }
+}, 5 * 60 * 1000);
 
 // Start server
 httpServer.listen(PORT, () => {

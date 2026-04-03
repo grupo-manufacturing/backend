@@ -2,6 +2,9 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const authService = require('../services/authService');
+const databaseService = require('../services/databaseService');
+const { authenticateToken } = require('../middleware/auth');
+const { isManufacturerOnboardingComplete } = require('../utils/onboardingUtils');
 
 const router = express.Router();
 
@@ -18,19 +21,6 @@ const otpRateLimiter = rateLimit({
   standardHeaders: false,
   legacyHeaders: false
 });
-
-function isManufacturerOnboardingComplete(profile) {
-  if (!profile) return false;
-
-  const hasUnitName = Boolean(profile.unit_name && String(profile.unit_name).trim());
-  const hasBusinessType = Boolean(profile.business_type && String(profile.business_type).trim());
-  const hasGstNumber = Boolean(profile.gst_number && String(profile.gst_number).trim());
-  const hasPanNumber = Boolean(profile.pan_number && String(profile.pan_number).trim());
-  const hasProductTypes = Array.isArray(profile.product_types) && profile.product_types.length > 0;
-  const hasDailyCapacity = Number(profile.daily_capacity || 0) > 0;
-
-  return hasUnitName && hasBusinessType && hasGstNumber && hasPanNumber && hasProductTypes && hasDailyCapacity;
-}
 
 const validatePhoneNumber = [
   body('phoneNumber')
@@ -132,19 +122,11 @@ router.post('/verify-otp', validateOTP, async (req, res) => {
 });
 
 // POST /api/auth/refresh-token
-router.post('/refresh-token', async (req, res) => {
+router.post('/refresh-token', authenticateToken, async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
     const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
+    const decoded = req.user;
 
     // Enforce active-session validation for non-admin roles so revoked tokens
     // (e.g. after logout) cannot be used to mint fresh JWTs.
@@ -178,19 +160,9 @@ router.post('/refresh-token', async (req, res) => {
 });
 
 // GET /api/auth/verify-token
-router.get('/verify-token', async (req, res) => {
+router.get('/verify-token', authenticateToken, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
+    const decoded = req.user;
 
     res.status(200).json({
       success: true,
@@ -212,17 +184,9 @@ router.get('/verify-token', async (req, res) => {
 });
 
 // POST /api/auth/logout
-router.post('/logout', async (req, res) => {
+router.post('/logout', authenticateToken, async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided'
-      });
-    }
-
     const token = authHeader.substring(7);
     await authService.logout(token);
 
@@ -246,7 +210,7 @@ router.post('/logout', async (req, res) => {
 });
 
 // POST /api/auth/manufacturer-onboarding
-router.post('/manufacturer-onboarding', [
+router.post('/manufacturer-onboarding', authenticateToken, [
   body('unit_name').notEmpty().isLength({ min: 1, max: 255 }).withMessage('Unit name is required'),
   body('business_type').notEmpty().isLength({ min: 1, max: 100 }).withMessage('Business type is required'),
   body('gst_number').notEmpty().isLength({ min: 1, max: 20 }).withMessage('GST number is required'),
@@ -266,20 +230,21 @@ router.post('/manufacturer-onboarding', [
       });
     }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+    if (req.user.role !== 'manufacturer') {
+      return res.status(403).json({
         success: false,
-        message: 'No token provided'
+        message: 'Only manufacturers can submit onboarding'
       });
     }
 
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
+    const decoded = req.user;
 
-    let profile = await authService.getProfileByPhone(decoded.phoneNumber, decoded.role);
+    let profile = await databaseService.findManufacturerProfileByPhone(decoded.phoneNumber);
     if (!profile) {
-      profile = await authService.createManufacturerProfile(decoded.phoneNumber);
+      profile = await databaseService.createManufacturerProfile({
+        phone_number: decoded.phoneNumber,
+        is_verified: false
+      });
     }
 
     const onboardingData = {
@@ -293,7 +258,7 @@ router.post('/manufacturer-onboarding', [
       manufacturing_unit_image_url: req.body.manufacturing_unit_image_url || null
     };
 
-    const updatedProfile = await authService.submitManufacturerOnboarding(profile.id, onboardingData);
+    const updatedProfile = await databaseService.updateManufacturerProfile(profile.id, onboardingData);
 
     res.status(200).json({
       success: true,
@@ -316,20 +281,17 @@ router.post('/manufacturer-onboarding', [
 });
 
 // GET /api/auth/manufacturer-profile
-router.get('/manufacturer-profile', async (req, res) => {
+router.get('/manufacturer-profile', authenticateToken, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+    if (req.user.role !== 'manufacturer') {
+      return res.status(403).json({
         success: false,
-        message: 'No token provided'
+        message: 'Only manufacturers can view manufacturer profile'
       });
     }
+    const decoded = req.user;
 
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
-
-    const profile = await authService.getProfileByPhone(decoded.phoneNumber, decoded.role);
+    const profile = await databaseService.findManufacturerProfileByPhone(decoded.phoneNumber);
     if (!profile) {
       return res.status(404).json({
         success: false,
@@ -337,7 +299,7 @@ router.get('/manufacturer-profile', async (req, res) => {
       });
     }
 
-    const fullProfile = await authService.getManufacturerProfile(profile.id);
+    const fullProfile = await databaseService.findManufacturerProfile(profile.id);
     const normalizedProfile = fullProfile || {
       phone_number: profile.phone_number,
       unit_name: '',
@@ -369,7 +331,7 @@ router.get('/manufacturer-profile', async (req, res) => {
 });
 
 // PUT /api/auth/manufacturer-profile
-router.put('/manufacturer-profile', [
+router.put('/manufacturer-profile', authenticateToken, [
   body('unit_name').optional().isLength({ min: 1, max: 255 }),
   body('business_type').optional().isLength({ min: 1, max: 100 }),
   body('gst_number').optional().isLength({ min: 1, max: 20 }),
@@ -389,18 +351,16 @@ router.put('/manufacturer-profile', [
       });
     }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+    if (req.user.role !== 'manufacturer') {
+      return res.status(403).json({
         success: false,
-        message: 'No token provided'
+        message: 'Only manufacturers can update manufacturer profile'
       });
     }
 
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
+    const decoded = req.user;
 
-    const profile = await authService.getProfileByPhone(decoded.phoneNumber, decoded.role);
+    const profile = await databaseService.findManufacturerProfileByPhone(decoded.phoneNumber);
     if (!profile) {
       return res.status(404).json({
         success: false,
@@ -425,8 +385,14 @@ router.put('/manufacturer-profile', [
         updateData[field] = req.body[field];
       }
     }
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No allowed fields provided for update'
+      });
+    }
 
-    const updatedProfile = await authService.updateManufacturerProfile(profile.id, updateData);
+    const updatedProfile = await databaseService.updateManufacturerProfile(profile.id, updateData);
 
     res.status(200).json({
       success: true,
@@ -503,29 +469,18 @@ router.post('/admin-login', [
   }
 });
 
-// POST /api/auth/buyer-onboarding (deprecated)
-router.post('/buyer-onboarding', async (req, res) => {
-  return res.status(410).json({
-    success: false,
-    message: 'Buyer onboarding endpoint has been removed. Use PUT /api/auth/buyer-profile to update profile.'
-  });
-});
-
 // GET /api/auth/buyer-profile
-router.get('/buyer-profile', async (req, res) => {
+router.get('/buyer-profile', authenticateToken, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+    if (req.user.role !== 'buyer') {
+      return res.status(403).json({
         success: false,
-        message: 'No token provided'
+        message: 'Only buyers can view buyer profile'
       });
     }
+    const decoded = req.user;
 
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
-
-    const profile = await authService.getProfileByPhone(decoded.phoneNumber, decoded.role);
+    const profile = await databaseService.findBuyerProfileByPhone(decoded.phoneNumber);
     if (!profile) {
       return res.status(404).json({
         success: false,
@@ -533,7 +488,7 @@ router.get('/buyer-profile', async (req, res) => {
       });
     }
 
-    const fullProfile = await authService.getBuyerProfile(profile.id);
+    const fullProfile = await databaseService.findBuyerProfile(profile.id);
 
     res.status(200).json({
       success: true,
@@ -563,7 +518,7 @@ router.get('/buyer-profile', async (req, res) => {
 });
 
 // PUT /api/auth/buyer-profile
-router.put('/buyer-profile', [
+router.put('/buyer-profile', authenticateToken, [
   body('full_name').notEmpty().isLength({ min: 1, max: 255 }).withMessage('Full name is required'),
   body('email').notEmpty().isEmail().withMessage('Please provide a valid email address'),
   body('phone_number').optional().isMobilePhone('any'),
@@ -579,18 +534,15 @@ router.put('/buyer-profile', [
       });
     }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+    if (req.user.role !== 'buyer') {
+      return res.status(403).json({
         success: false,
-        message: 'No token provided'
+        message: 'Only buyers can update buyer profile'
       });
     }
+    const decoded = req.user;
 
-    const token = authHeader.substring(7);
-    const decoded = authService.verifyJWT(token);
-
-    const profile = await authService.getProfileByPhone(decoded.phoneNumber, decoded.role);
+    const profile = await databaseService.findBuyerProfileByPhone(decoded.phoneNumber);
     if (!profile) {
       return res.status(404).json({
         success: false,
@@ -598,7 +550,7 @@ router.put('/buyer-profile', [
       });
     }
 
-    const updatedProfile = await authService.updateBuyerProfile(profile.id, req.body);
+    const updatedProfile = await databaseService.updateBuyerProfile(profile.id, req.body);
 
     res.status(200).json({
       success: true,

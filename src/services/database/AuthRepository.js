@@ -1,9 +1,9 @@
 /**
  * Auth Repository - OTP sessions and User sessions management
  */
-const { supabase } = require('./BaseRepository');
+const { BaseRepository } = require('./BaseRepository');
 
-class AuthRepository {
+class AuthRepository extends BaseRepository {
   /**
    * Store OTP session
    * @param {Object} otpData - OTP session data
@@ -11,7 +11,7 @@ class AuthRepository {
    */
   async storeOTPSession(otpData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('otp_sessions')
         .insert([otpData])
         .select()
@@ -35,7 +35,7 @@ class AuthRepository {
    */
   async expireActiveOtps(phoneNumber) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('otp_sessions')
         .update({ expires_at: new Date().toISOString() })
         .eq('phone_number', phoneNumber)
@@ -61,7 +61,7 @@ class AuthRepository {
    */
   async findOTPSession(phoneNumber) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('otp_sessions')
         .select('*')
         .eq('phone_number', phoneNumber)
@@ -69,7 +69,7 @@ class AuthRepository {
         .limit(1)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to find OTP session: ${error.message}`);
       }
 
@@ -88,7 +88,7 @@ class AuthRepository {
    */
   async updateOTPSession(sessionId, updateData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('otp_sessions')
         .update(updateData)
         .eq('id', sessionId)
@@ -113,7 +113,7 @@ class AuthRepository {
    */
   async storeUserSession(sessionData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('user_sessions')
         .insert([sessionData])
         .select()
@@ -137,7 +137,7 @@ class AuthRepository {
    */
   async findUserSession(tokenHash) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('user_sessions')
         .select('*')
         .eq('token_hash', tokenHash)
@@ -145,7 +145,7 @@ class AuthRepository {
         .gt('expires_at', new Date().toISOString())
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to find user session: ${error.message}`);
       }
 
@@ -156,7 +156,7 @@ class AuthRepository {
       // Get the profile data based on profile_type
       let profileData = null;
       if (data.profile_type === 'buyer') {
-        const { data: buyerProfile, error: buyerError } = await supabase
+        const { data: buyerProfile, error: buyerError } = await this.supabase
           .from('buyer_profiles')
           .select('*')
           .eq('id', data.profile_id)
@@ -166,7 +166,7 @@ class AuthRepository {
           profileData = buyerProfile;
         }
       } else if (data.profile_type === 'manufacturer') {
-        const { data: manufacturerProfile, error: manufacturerError } = await supabase
+        const { data: manufacturerProfile, error: manufacturerError } = await this.supabase
           .from('manufacturer_profiles')
           .select('*')
           .eq('id', data.profile_id)
@@ -194,7 +194,7 @@ class AuthRepository {
    */
   async deactivateUserSession(tokenHash) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('user_sessions')
         .update({ is_active: false })
         .eq('token_hash', tokenHash)
@@ -220,7 +220,7 @@ class AuthRepository {
   async getDailyOTPCount(phoneNumber) {
     try {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('otp_sessions')
         .select('id')
         .eq('phone_number', phoneNumber)
@@ -243,7 +243,7 @@ class AuthRepository {
    */
   async cleanupExpiredOTPs() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .rpc('cleanup_expired_otps');
 
       if (error) {
@@ -263,7 +263,7 @@ class AuthRepository {
    */
   async cleanupExpiredSessions() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .rpc('cleanup_expired_sessions');
 
       if (error) {

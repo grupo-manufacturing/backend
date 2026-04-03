@@ -1,11 +1,10 @@
 /**
  * Manufacturer Repository - Manufacturer profile management
  */
-const { supabase } = require('./BaseRepository');
-const { normalizePagination } = require('../../utils/paginationHelper');
+const { BaseRepository } = require('./BaseRepository');
 const { applySorting } = require('../../utils/queryOptionsHelper');
 
-class ManufacturerRepository {
+class ManufacturerRepository extends BaseRepository {
   /**
    * Create a new manufacturer profile
    * @param {Object} profileData - Manufacturer profile data
@@ -13,7 +12,7 @@ class ManufacturerRepository {
    */
   async createManufacturerProfile(profileData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('manufacturer_profiles')
         .insert([profileData])
         .select()
@@ -37,13 +36,13 @@ class ManufacturerRepository {
    */
   async findManufacturerProfileByPhone(phoneNumber) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('manufacturer_profiles')
         .select('*')
         .eq('phone_number', phoneNumber)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to find manufacturer profile: ${error.message}`);
       }
 
@@ -62,7 +61,7 @@ class ManufacturerRepository {
    */
   async updateManufacturerProfileByPhone(phoneNumber, updateData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('manufacturer_profiles')
         .update(updateData)
         .eq('phone_number', phoneNumber)
@@ -87,13 +86,13 @@ class ManufacturerRepository {
    */
   async findManufacturerProfile(profileId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('manufacturer_profiles')
         .select('*')
         .eq('id', profileId)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to find manufacturer profile: ${error.message}`);
       }
 
@@ -112,29 +111,24 @@ class ManufacturerRepository {
    */
   async updateManufacturerProfile(profileId, profileData) {
     try {
-      // First check if profile exists
-      const existingProfile = await this.findManufacturerProfile(profileId);
-      
-      if (existingProfile) {
-        // Update existing profile
-        const { data, error } = await supabase
-          .from('manufacturer_profiles')
-          .update({
-            ...profileData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', profileId)
-          .select()
-          .single();
+      const { data, error } = await this.supabase
+        .from('manufacturer_profiles')
+        .update({
+          ...profileData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', profileId)
+        .select()
+        .single();
 
-        if (error) {
-          throw new Error(`Failed to update manufacturer profile: ${error.message}`);
+      if (error) {
+        if (this.isNotFoundError(error)) {
+          throw new Error('Manufacturer profile not found');
         }
-
-        return data;
-      } else {
-        throw new Error('Manufacturer profile not found');
+        throw new Error(`Failed to update manufacturer profile: ${error.message}`);
       }
+
+      return data;
     } catch (error) {
       console.error('ManufacturerRepository.updateManufacturerProfile error:', error);
       throw error;
@@ -149,7 +143,7 @@ class ManufacturerRepository {
   async getAllManufacturers(options = {}) {
     try {
       // Select only fields needed for list view to reduce payload size
-      let query = supabase.from('manufacturer_profiles')
+      let query = this.supabase.from('manufacturer_profiles')
         .select('id, manufacturer_id, unit_name, business_type, phone_number, gst_number, pan_number, product_types, is_verified, created_at');
 
       // Apply filters if provided
@@ -163,7 +157,7 @@ class ManufacturerRepository {
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);

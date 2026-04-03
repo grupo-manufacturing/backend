@@ -1,11 +1,10 @@
 /**
  * Buyer Repository - Buyer profile management
  */
-const { supabase } = require('./BaseRepository');
-const { normalizePagination } = require('../../utils/paginationHelper');
+const { BaseRepository } = require('./BaseRepository');
 const { applySorting } = require('../../utils/queryOptionsHelper');
 
-class BuyerRepository {
+class BuyerRepository extends BaseRepository {
   /**
    * Create a new buyer profile
    * @param {Object} profileData - Buyer profile data
@@ -13,7 +12,7 @@ class BuyerRepository {
    */
   async createBuyerProfile(profileData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('buyer_profiles')
         .insert([profileData])
         .select()
@@ -37,13 +36,13 @@ class BuyerRepository {
    */
   async findBuyerProfileByPhone(phoneNumber) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('buyer_profiles')
         .select('*')
         .eq('phone_number', phoneNumber)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to find buyer profile: ${error.message}`);
       }
 
@@ -62,7 +61,7 @@ class BuyerRepository {
    */
   async updateBuyerProfileByPhone(phoneNumber, updateData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('buyer_profiles')
         .update(updateData)
         .eq('phone_number', phoneNumber)
@@ -87,13 +86,13 @@ class BuyerRepository {
    */
   async findBuyerProfile(profileId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('buyer_profiles')
         .select('*')
         .eq('id', profileId)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to find buyer profile: ${error.message}`);
       }
 
@@ -112,26 +111,21 @@ class BuyerRepository {
    */
   async updateBuyerProfile(profileId, profileData) {
     try {
-      // First check if profile exists
-      const existingProfile = await this.findBuyerProfile(profileId);
-      
-      if (existingProfile) {
-        // Update existing profile
-        const { data, error } = await supabase
-          .from('buyer_profiles')
-          .update(profileData)
-          .eq('id', profileId)
-          .select()
-          .single();
+      const { data, error } = await this.supabase
+        .from('buyer_profiles')
+        .update(profileData)
+        .eq('id', profileId)
+        .select()
+        .single();
 
-        if (error) {
-          throw new Error(`Failed to update buyer profile: ${error.message}`);
+      if (error) {
+        if (this.isNotFoundError(error)) {
+          throw new Error('Buyer profile not found');
         }
-
-        return data;
-      } else {
-        throw new Error('Buyer profile not found');
+        throw new Error(`Failed to update buyer profile: ${error.message}`);
       }
+
+      return data;
     } catch (error) {
       console.error('BuyerRepository.updateBuyerProfile error:', error);
       throw error;
@@ -146,12 +140,12 @@ class BuyerRepository {
   async getAllBuyers(options = {}) {
     try {
       // Select only fields needed for list view to reduce payload size
-      let query = supabase.from('buyer_profiles')
+      let query = this.supabase.from('buyer_profiles')
         .select('id, buyer_identifier, full_name, phone_number, created_at');
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);

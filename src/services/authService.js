@@ -115,7 +115,7 @@ class AuthService {
         }
       }
       
-      throw new Error(`Failed to send OTP: ${error.message}`);
+      throw error;
     }
   }
 
@@ -238,7 +238,7 @@ class AuthService {
 
     } catch (error) {
       console.error('Error verifying OTP:', error);
-      throw new Error(`OTP verification failed: ${error.message}`);
+      throw error;
     }
   }
 
@@ -253,7 +253,6 @@ class AuthService {
       userId,
       phoneNumber,
       role,
-      iat: Math.floor(Date.now() / 1000),
       type: 'auth'
     };
 
@@ -271,7 +270,8 @@ class AuthService {
     try {
       return jwt.verify(token, process.env.JWT_SECRET);
     } catch (error) {
-      throw new Error('Invalid or expired token');
+      error.message = 'Invalid or expired token';
+      throw error;
     }
   }
 
@@ -302,7 +302,7 @@ class AuthService {
       };
     } catch (error) {
       console.error('Error during logout:', error);
-      throw new Error(`Logout failed: ${error.message}`);
+      throw error;
     }
   }
 
@@ -314,121 +314,9 @@ class AuthService {
   async findActiveSessionByToken(token) {
     try {
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      return await databaseService.findUserSession(tokenHash);
+      return databaseService.findUserSession(tokenHash);
     } catch (error) {
       console.error('Error finding active session by token:', error);
-      throw new Error(`Session lookup failed: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get profile by phone number and role
-   * @param {string} phoneNumber - Phone number
-   * @param {string} role - User role ('buyer' or 'manufacturer')
-   * @returns {Promise<Object>} Profile data
-   */
-  async getProfileByPhone(phoneNumber, role) {
-    try {
-      if (role === 'buyer') {
-        return await databaseService.findBuyerProfileByPhone(phoneNumber);
-      } else if (role === 'manufacturer') {
-        return await databaseService.findManufacturerProfileByPhone(phoneNumber);
-      }
-      throw new Error('Invalid role specified');
-    } catch (error) {
-      console.error('Error getting profile by phone:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get manufacturer profile by profile ID
-   * @param {string} profileId - Profile ID
-   * @returns {Promise<Object>} Manufacturer profile data
-   */
-  async getManufacturerProfile(profileId) {
-    try {
-      return await databaseService.findManufacturerProfile(profileId);
-    } catch (error) {
-      console.error('Error getting manufacturer profile:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update manufacturer profile
-   * @param {string} profileId - Profile ID
-   * @param {Object} profileData - Profile data to update
-   * @returns {Promise<Object>} Updated profile data
-   */
-  async updateManufacturerProfile(profileId, profileData) {
-    try {
-      return await databaseService.updateManufacturerProfile(profileId, profileData);
-    } catch (error) {
-      console.error('Error updating manufacturer profile:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get buyer profile by profile ID
-   * @param {string} profileId - Profile ID
-   * @returns {Promise<Object>} Buyer profile data
-   */
-  async getBuyerProfile(profileId) {
-    try {
-      return await databaseService.findBuyerProfile(profileId);
-    } catch (error) {
-      console.error('Error getting buyer profile:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update buyer profile
-   * @param {string} profileId - Profile ID
-   * @param {Object} profileData - Profile data to update
-   * @returns {Promise<Object>} Updated profile data
-   */
-  async updateBuyerProfile(profileId, profileData) {
-    try {
-      return await databaseService.updateBuyerProfile(profileId, profileData);
-    } catch (error) {
-      console.error('Error updating buyer profile:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create manufacturer profile
-   * @param {string} phoneNumber - Phone number
-   * @returns {Promise<Object>} Created profile data
-   */
-  async createManufacturerProfile(phoneNumber) {
-    try {
-      const profileData = {
-        phone_number: phoneNumber,
-        // Keep verification disabled until admin approval
-        is_verified: false
-      };
-      return await databaseService.createManufacturerProfile(profileData);
-    } catch (error) {
-      console.error('Error creating manufacturer profile:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Submit manufacturer onboarding data
-   * @param {string} profileId - Profile ID
-   * @param {Object} onboardingData - Onboarding data
-   * @returns {Promise<Object>} Updated profile data
-   */
-  async submitManufacturerOnboarding(profileId, onboardingData) {
-    try {
-      return await databaseService.updateManufacturerProfile(profileId, onboardingData);
-    } catch (error) {
-      console.error('Error submitting manufacturer onboarding:', error);
       throw error;
     }
   }
@@ -453,15 +341,5 @@ class AuthService {
     }
   }
 }
-
-// Clean up expired data every 5 minutes
-setInterval(async () => {
-  try {
-    const authService = new AuthService();
-    await authService.cleanupExpiredData();
-  } catch (error) {
-    console.error('Scheduled cleanup failed:', error);
-  }
-}, 5 * 60 * 1000);
 
 module.exports = new AuthService();

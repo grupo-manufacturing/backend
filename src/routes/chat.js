@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
+const { requireConversationAccess } = require('../middleware/conversationAuth');
 const databaseService = require('../services/databaseService');
 const { buildMessageSummary } = require('../utils/messageSummary');
 const { parsePagination } = require('../utils/paginationHelper');
@@ -11,6 +12,15 @@ const sanitizeBody = (text) => {
   if (typeof text !== 'string') return '';
   const noHtml = text.replace(/<[^>]*>/g, '');
   return noHtml.length > 4000 ? noHtml.slice(0, 4000) : noHtml;
+};
+
+const handleValidationErrors = (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    return true;
+  }
+  return false;
 };
 
 // GET /conversations - List user's conversations
@@ -75,10 +85,7 @@ router.post('/conversations', [
   body('manufacturerId').isUUID().withMessage('manufacturerId must be a valid UUID')
 ], authenticateToken, async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-    }
+    if (handleValidationErrors(req, res)) return;
 
     const { buyerId, manufacturerId } = req.body;
     const { userId, role } = req.user;
@@ -95,79 +102,37 @@ router.post('/conversations', [
   }
 });
 
+const listMessagesHandler = async (req, res) => {
+  try {
+    if (handleValidationErrors(req, res)) return;
+
+    const conversationId = req.params.id;
+    const before = req.query.before;
+    const { limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 100 });
+    const requirementId = req.params.requirementId || req.query.requirementId || null;
+    const normalOnly = req.path.endsWith('/normal');
+    const messages = await databaseService.listMessagesWithAttachments(conversationId, { before, limit, requirementId, normalOnly });
+    return res.status(200).json({ success: true, data: { messages }, count: messages.length });
+  } catch (error) {
+    console.error('List messages error:', error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to list messages' });
+  }
+};
+
 // GET /conversations/:id/messages/requirement/:requirementId - Get messages for specific requirement
 router.get('/conversations/:id/messages/requirement/:requirementId', [
   param('id').isUUID(),
   param('requirementId').isUUID(),
   query('before').optional().isISO8601(),
   query('limit').optional().isInt({ min: 1, max: 200 })
-], authenticateToken, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-    }
-
-    const conversationId = req.params.id;
-    const requirementId = req.params.requirementId;
-    const before = req.query.before;
-    const { limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
-
-    const convo = await databaseService.getConversation(conversationId);
-    const { userId, role } = req.user;
-
-    if (!convo || !((role === 'buyer' && convo.buyer_id === userId) || (role === 'manufacturer' && convo.manufacturer_id === userId))) {
-      return res.status(403).json({ success: false, message: 'Not authorized to view this conversation' });
-    }
-
-    const messages = await databaseService.listMessagesWithAttachments(conversationId, { before, limit, requirementId });
-    
-    return res.status(200).json({ 
-      success: true, 
-      data: { messages },
-      count: messages.length 
-    });
-  } catch (error) {
-    console.error('List messages by requirement error:', error);
-    return res.status(400).json({ success: false, message: error.message || 'Failed to list messages' });
-  }
-});
+], authenticateToken, requireConversationAccess, listMessagesHandler);
 
 // GET /conversations/:id/messages/normal - Get normal (non-requirement) messages
 router.get('/conversations/:id/messages/normal', [
   param('id').isUUID(),
   query('before').optional().isISO8601(),
   query('limit').optional().isInt({ min: 1, max: 200 })
-], authenticateToken, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-    }
-
-    const conversationId = req.params.id;
-    const before = req.query.before;
-    const { limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
-
-    const convo = await databaseService.getConversation(conversationId);
-    const { userId, role } = req.user;
-
-    if (!convo || !((role === 'buyer' && convo.buyer_id === userId) || (role === 'manufacturer' && convo.manufacturer_id === userId))) {
-      return res.status(403).json({ success: false, message: 'Not authorized to view this conversation' });
-    }
-
-    const messages = await databaseService.listMessagesWithAttachments(conversationId, { before, limit, normalOnly: true });
-    
-    return res.status(200).json({ 
-      success: true, 
-      data: { messages },
-      count: messages.length 
-    });
-  } catch (error) {
-    console.error('List normal messages error:', error);
-    return res.status(400).json({ success: false, message: error.message || 'Failed to list messages' });
-  }
-});
+], authenticateToken, requireConversationAccess, listMessagesHandler);
 
 // GET /conversations/:id/messages - Paginate history
 router.get('/conversations/:id/messages', [
@@ -175,32 +140,7 @@ router.get('/conversations/:id/messages', [
   query('before').optional().isISO8601(),
   query('limit').optional().isInt({ min: 1, max: 100 }),
   query('requirementId').optional().isUUID()
-], authenticateToken, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-    }
-
-    const conversationId = req.params.id;
-    const before = req.query.before;
-    const { limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 100 });
-    const requirementId = req.query.requirementId || null;
-
-    const convo = await databaseService.getConversation(conversationId);
-    const { userId, role } = req.user;
-
-    if (!convo || !((role === 'buyer' && convo.buyer_id === userId) || (role === 'manufacturer' && convo.manufacturer_id === userId))) {
-      return res.status(403).json({ success: false, message: 'Not authorized to view this conversation' });
-    }
-
-    const messages = await databaseService.listMessagesWithAttachments(conversationId, { before, limit, requirementId });
-    res.status(200).json({ success: true, data: { messages } });
-  } catch (error) {
-    console.error('List messages error:', error);
-    res.status(400).json({ success: false, message: error.message || 'Failed to list messages' });
-  }
-});
+], authenticateToken, requireConversationAccess, listMessagesHandler);
 
 // POST /conversations/:id/messages - Send message
 router.post('/conversations/:id/messages', [
@@ -209,20 +149,12 @@ router.post('/conversations/:id/messages', [
   body('clientTempId').optional().isString().isLength({ max: 64 }),
   body('attachments').optional().isArray(),
   body('requirementId').optional().isUUID()
-], authenticateToken, async (req, res) => {
+], authenticateToken, requireConversationAccess, async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-    }
+    if (handleValidationErrors(req, res)) return;
 
     const conversationId = req.params.id;
     const { userId, role } = req.user;
-    const convo = await databaseService.getConversation(conversationId);
-
-    if (!convo || !((role === 'buyer' && convo.buyer_id === userId) || (role === 'manufacturer' && convo.manufacturer_id === userId))) {
-      return res.status(403).json({ success: false, message: 'Not authorized to send in this conversation' });
-    }
 
     const hasBody = req.body.body && req.body.body.trim().length > 0;
     const hasAttachments = req.body.attachments && Array.isArray(req.body.attachments) && req.body.attachments.length > 0;
@@ -254,20 +186,12 @@ router.post('/conversations/:id/messages', [
 router.post('/conversations/:id/read', [
   param('id').isUUID(),
   body('upTo').optional().isISO8601()
-], authenticateToken, async (req, res) => {
+], authenticateToken, requireConversationAccess, async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-    }
+    if (handleValidationErrors(req, res)) return;
 
     const conversationId = req.params.id;
     const { userId, role } = req.user;
-    const convo = await databaseService.getConversation(conversationId);
-
-    if (!convo || !((role === 'buyer' && convo.buyer_id === userId) || (role === 'manufacturer' && convo.manufacturer_id === userId))) {
-      return res.status(403).json({ success: false, message: 'Not authorized to mark read in this conversation' });
-    }
 
     const upTo = req.body.upTo || new Date().toISOString();
     const count = await databaseService.markRead(conversationId, userId, upTo);

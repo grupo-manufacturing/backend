@@ -44,6 +44,66 @@ const validateCreateRequirement = [
     .withMessage('Notes must not exceed 2000 characters')
 ];
 
+const validateUpdateRequirement = [
+  body('requirement_text')
+    .optional({ nullable: true })
+    .isString()
+    .isLength({ max: 5000 })
+    .withMessage('Requirement text must not exceed 5000 characters'),
+  body('quantity')
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      const parsed = parseInt(value, 10);
+      if (Number.isNaN(parsed) || parsed < MIN_REQUIREMENT_QUANTITY) {
+        throw new Error(`Quantity must be at least ${MIN_REQUIREMENT_QUANTITY}`);
+      }
+      return true;
+    }),
+  body('product_type')
+    .optional({ nullable: true })
+    .isString()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Product type must be between 1 and 255 characters'),
+  body('product_link')
+    .optional({ nullable: true, checkFalsy: true })
+    .isURL({ require_protocol: false, allow_underscores: true })
+    .withMessage('Product link must be a valid URL'),
+  body('image_url')
+    .optional({ nullable: true, checkFalsy: true })
+    .isURL({ require_protocol: false, allow_underscores: true })
+    .withMessage('Image URL must be a valid URL'),
+  body('notes')
+    .optional({ nullable: true })
+    .isString()
+    .isLength({ max: 2000 })
+    .withMessage('Notes must not exceed 2000 characters')
+];
+
+const validateCreateRequirementResponse = [
+  body('quoted_price')
+    .notEmpty()
+    .withMessage('quoted_price is required')
+    .isFloat({ gt: 0 })
+    .withMessage('quoted_price must be a positive number'),
+  body('price_per_unit')
+    .notEmpty()
+    .withMessage('price_per_unit is required')
+    .isFloat({ gt: 0 })
+    .withMessage('price_per_unit must be a positive number'),
+  body('delivery_time')
+    .notEmpty()
+    .withMessage('delivery_time is required')
+    .isString()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('delivery_time must be between 1 and 255 characters'),
+  body('notes')
+    .optional({ nullable: true })
+    .isString()
+    .isLength({ max: 2000 })
+    .withMessage('notes must not exceed 2000 characters')
+];
+
 // POST /api/requirements - Create requirement (Buyer only)
 router.post('/', authenticateToken, validateCreateRequirement, async (req, res) => {
   try {
@@ -95,7 +155,7 @@ router.post('/', authenticateToken, validateCreateRequirement, async (req, res) 
         const buyer = await databaseService.findBuyerProfile(requirement.buyer_id);
         const enrichedRequirement = { ...requirement, buyer: buyer || null };
 
-        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true });
+        const verifiedManufacturers = await databaseService.getAllManufacturers({ verified: true, limit: 100 });
         const io = req.app.locals.io;
         
         // Send socket notifications to verified manufacturers (non-blocking)
@@ -263,19 +323,8 @@ router.get('/conversation/:conversationId/active-requirements', authenticateToke
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const supabase = require('../config/supabase');
-    
-    // Fetch requirement with buyer data in a single query using relationship
-    const { data: requirement, error } = await supabase
-      .from('requirements')
-      .select(`
-        *,
-        buyer:buyer_profiles(id, buyer_identifier, full_name, phone_number, business_address)
-      `)
-      .eq('id', id)
-      .single();
-
-    if (error || !requirement) {
+    const requirement = await databaseService.getRequirementWithBuyer(id);
+    if (!requirement) {
       return res.status(404).json({
         success: false,
         message: 'Requirement not found'
@@ -310,8 +359,17 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // PUT /api/requirements/:id (Buyer only)
-router.put('/:id', authenticateToken, async (req, res) => {
+router.put('/:id', authenticateToken, validateUpdateRequirement, async (req, res) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     const { id } = req.params;
     const existingRequirement = await databaseService.getRequirement(id);
 
@@ -408,8 +466,17 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 });
 
 // POST /api/requirements/:id/responses - Create response (Manufacturer only)
-router.post('/:id/responses', authenticateToken, async (req, res) => {
+router.post('/:id/responses', authenticateToken, validateCreateRequirementResponse, async (req, res) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     if (req.user.role !== 'manufacturer') {
       return res.status(403).json({
         success: false,
@@ -419,13 +486,6 @@ router.post('/:id/responses', authenticateToken, async (req, res) => {
 
     const { id: requirementId } = req.params;
     const { quoted_price, price_per_unit, delivery_time, notes } = req.body;
-
-    if (!quoted_price || !price_per_unit || !delivery_time) {
-      return res.status(400).json({
-        success: false,
-        message: 'Quoted price, price per unit, and delivery time are required'
-      });
-    }
 
     const requirement = await databaseService.getRequirement(requirementId);
     if (!requirement) {
@@ -636,17 +696,10 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
     const { responseId } = req.params;
     const { status } = req.body;
 
-    if (!status || !['accepted', 'rejected'].includes(status)) {
+    if (!status || !['rejected'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Status must be either "accepted" or "rejected"'
-      });
-    }
-
-    if (status === 'accepted') {
-      return res.status(400).json({
-        success: false,
-        message: 'Use Accept & Pay flow. Requirement status changes to accepted only after UTR submission.'
+        message: 'Status must be "rejected". Use Accept & Pay flow for acceptance.'
       });
     }
 
@@ -711,19 +764,15 @@ router.patch('/responses/:responseId/status', authenticateToken, async (req, res
 // GET /api/requirements/admin/orders (Admin only)
 router.get('/admin/orders', authenticateAdmin, async (req, res) => {
   try {
-    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
     const { sortBy, sortOrder } = normalizeSort(req.query, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
     const options = {
-      status: req.query.status,
-      limit,
-      offset,
       sortBy,
       sortOrder
     };
 
-    // Fetch all requirement responses (acts as orders for admin analytics/reporting)
-    const orders = await databaseService.getOrders(options);
+    // Fetch all requirements (acts as orders for admin view)
+    const orders = await databaseService.getAllRequirements(options);
 
     return res.status(200).json({
       success: true,

@@ -1,4 +1,5 @@
 const express = require('express');
+const { body, param, validationResult } = require('express-validator');
 const router = express.Router();
 const databaseService = require('../services/databaseService');
 const whatsappService = require('../services/whatsappService');
@@ -13,11 +14,60 @@ const normalizeTransactionRef = (value) => {
   return trimmed;
 };
 
+const validateMilestoneBody = [
+  body('milestone')
+    .notEmpty()
+    .withMessage('milestone is required')
+    .isIn(['m1', 'm2'])
+    .withMessage('milestone must be m1 or m2')
+];
+
+const validateResponseIdParam = [
+  param('responseId')
+    .notEmpty()
+    .withMessage('responseId is required')
+    .isUUID()
+    .withMessage('responseId must be a valid UUID')
+];
+
+const validateTransactionRef = [
+  body('transactionRef')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('transactionRef must be a string')
+    .isLength({ max: 100 })
+    .withMessage('transactionRef must be at most 100 characters')
+];
+
+const validateCompleteMilestone = [
+  body('responseId')
+    .notEmpty()
+    .withMessage('responseId is required')
+    .isUUID()
+    .withMessage('responseId must be a valid UUID'),
+  ...validateMilestoneBody
+];
+
+function handleValidationErrors(req, res) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+    return true;
+  }
+  return false;
+}
+
 // POST /api/milestones/complete - Manufacturer marks milestone as done
 // For M1: in_production -> milestone_1_pending
 // For M2: milestone_1_done (after M1 paid) -> milestone_2_pending
-router.post('/complete', authenticateToken, async (req, res) => {
+router.post('/complete', authenticateToken, validateCompleteMilestone, async (req, res) => {
   try {
+    if (handleValidationErrors(req, res)) return;
+
     if (req.user.role !== 'manufacturer') {
       return res.status(403).json({
         success: false,
@@ -128,8 +178,10 @@ router.post('/complete', authenticateToken, async (req, res) => {
 // POST /api/milestones/approve/:responseId - Buyer approves milestone
 // M1: milestone_1_pending -> milestone_1_done
 // M2: milestone_2_pending -> milestone_2_done
-router.post('/approve/:responseId', authenticateToken, async (req, res) => {
+router.post('/approve/:responseId', authenticateToken, [...validateResponseIdParam, ...validateMilestoneBody], async (req, res) => {
   try {
+    if (handleValidationErrors(req, res)) return;
+
     if (req.user.role !== 'buyer') {
       return res.status(403).json({
         success: false,
@@ -250,8 +302,10 @@ router.post('/approve/:responseId', authenticateToken, async (req, res) => {
 // POST /api/milestones/mark-paid/:responseId - Admin marks milestone payout as transferred
 // M1: milestone_1_done -> (stays milestone_1_done but m1_paid_at is set)
 // After M1 paid, manufacturer can proceed to M2
-router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
+router.post('/mark-paid/:responseId', authenticateAdmin, [...validateResponseIdParam, ...validateMilestoneBody, ...validateTransactionRef], async (req, res) => {
   try {
+    if (handleValidationErrors(req, res)) return;
+
     const { responseId } = req.params;
     const { milestone, transactionRef } = req.body;
 
@@ -365,7 +419,6 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
         await whatsappService.notifyMilestonePayoutCompleted(
           manufacturer.phone_number,
           milestone,
-          payoutAmount,
           requirement,
           transactionRef
         );
@@ -393,68 +446,7 @@ router.post('/mark-paid/:responseId', authenticateAdmin, async (req, res) => {
 // GET /api/milestones/pending-payouts - Admin gets all milestones awaiting payout
 router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
   try {
-    const supabase = require('../config/supabase');
-    
-    // Get all responses where M1 payout is pending (accepted + payment verified), M2 payout pending, or final payout pending
-    const { data: responses, error } = await supabase
-      .from('requirement_responses')
-      .select(`
-        *,
-        requirement:requirements(
-          id,
-          requirement_no,
-          product_type,
-          quantity,
-          buyer_id,
-          buyer:buyer_profiles(id, full_name, phone_number, business_address)
-        ),
-        manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number)
-      `)
-      .or('status.eq.accepted,status.eq.milestone_1_done,status.eq.milestone_2_done,status.eq.delivered')
-      .order('updated_at', { ascending: false });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    // Filter to only those not yet paid and determine payout type
-    const pendingPayouts = (responses || []).filter(r => {
-      // M1 payout: when status is 'accepted' and M1 not yet paid (meaning payment 1 was verified)
-      if (r.status === 'accepted' && !r.m1_paid_at) return true;
-      // M2 payout: when status is 'milestone_1_done' and M2 not yet paid (meaning M1 approved but M2 not paid)
-      if (r.status === 'milestone_1_done' && !r.m2_paid_at) return true;
-      // Final payout: when status is 'delivered' and final not yet paid
-      if (r.status === 'delivered' && !r.final_paid_at) return true;
-      return false;
-    }).map(r => {
-      let pendingMilestone;
-      let payoutAmount;
-      let payoutLabel;
-      
-      if (r.status === 'accepted' && !r.m1_paid_at) {
-        pendingMilestone = 'm1';
-        // M1: 30% gross - 3% platform fee = 27% net to manufacturer
-        payoutAmount = r.quoted_price ? (r.quoted_price * PAYOUT_RATES.M1_NET) : 0;
-        payoutLabel = 'M1 Payout (30% - 3% fee = 27%)';
-      } else if (r.status === 'milestone_1_done' && !r.m2_paid_at) {
-        pendingMilestone = 'm2';
-        // M2: 20% gross - 2% platform fee = 18% net to manufacturer
-        payoutAmount = r.quoted_price ? (r.quoted_price * PAYOUT_RATES.M2_NET) : 0;
-        payoutLabel = 'M2 Payout (20% - 2% fee = 18%)';
-      } else {
-        pendingMilestone = 'final';
-        // Final: 50% gross - 5% platform fee = 45% net to manufacturer
-        payoutAmount = r.quoted_price ? (r.quoted_price * PAYOUT_RATES.FINAL_NET) : 0;
-        payoutLabel = 'Final Payout (50% - 5% fee = 45%)';
-      }
-      
-      return {
-        ...r,
-        pendingMilestone,
-        payoutAmount,
-        payoutLabel
-      };
-    });
+    const pendingPayouts = await databaseService.getPendingMilestonePayouts();
 
     return res.status(200).json({
       success: true,
@@ -472,8 +464,10 @@ router.get('/pending-payouts', authenticateAdmin, async (req, res) => {
 });
 
 // POST /api/milestones/mark-final-paid/:responseId - Admin marks final payout as transferred
-router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) => {
+router.post('/mark-final-paid/:responseId', authenticateAdmin, [...validateResponseIdParam, ...validateTransactionRef], async (req, res) => {
   try {
+    if (handleValidationErrors(req, res)) return;
+
     const { responseId } = req.params;
     const { transactionRef } = req.body;
 
@@ -505,12 +499,6 @@ router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) 
     };
 
     const normalizedTransactionRef = normalizeTransactionRef(transactionRef);
-    if (normalizedTransactionRef && normalizedTransactionRef.length > 100) {
-      return res.status(400).json({
-        success: false,
-        message: 'transactionRef must be at most 100 characters'
-      });
-    }
     updateData.final_transaction_ref = normalizedTransactionRef;
 
     const updatedResponse = await databaseService.updateRequirementResponse(responseId, updateData);
@@ -536,7 +524,6 @@ router.post('/mark-final-paid/:responseId', authenticateAdmin, async (req, res) 
       if (manufacturer && manufacturer.phone_number) {
         await whatsappService.notifyFinalPayoutCompleted(
           manufacturer.phone_number,
-          payoutAmount,
           requirement,
           transactionRef
         );

@@ -1,11 +1,11 @@
 /**
  * Requirement Repository - Requirements and Requirement Responses management
  */
-const { supabase } = require('./BaseRepository');
-const { normalizePagination } = require('../../utils/paginationHelper');
+const { BaseRepository } = require('./BaseRepository');
 const { applySorting } = require('../../utils/queryOptionsHelper');
+const PAYOUT_RATES = require('../../constants/payoutRates');
 
-class RequirementRepository {
+class RequirementRepository extends BaseRepository {
   // =============================================
   // REQUIREMENTS METHODS
   // =============================================
@@ -17,7 +17,7 @@ class RequirementRepository {
    */
   async createRequirement(requirementData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirements')
         .insert([requirementData])
         .select()
@@ -43,14 +43,14 @@ class RequirementRepository {
   async getBuyerRequirements(buyerId, options = {}) {
     try {
       // Select only fields needed for list view to reduce payload size
-      let query = supabase
+      let query = this.supabase
         .from('requirements')
         .select('id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link, status')
         .eq('buyer_id', buyerId);
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);
@@ -75,7 +75,7 @@ class RequirementRepository {
    */
   async getRequirement(requirementId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirements')
         .select('*')
         .eq('id', requirementId)
@@ -93,6 +93,33 @@ class RequirementRepository {
   }
 
   /**
+   * Get a requirement by ID with buyer profile in one query.
+   * @param {string} requirementId - Requirement ID
+   * @returns {Promise<Object|null>} Requirement with buyer or null
+   */
+  async getRequirementWithBuyer(requirementId) {
+    try {
+      const { data, error } = await this.supabase
+        .from('requirements')
+        .select(`
+          *,
+          buyer:buyer_profiles(id, buyer_identifier, full_name, phone_number, business_address)
+        `)
+        .eq('id', requirementId)
+        .single();
+
+      if (error && !this.isNotFoundError(error)) {
+        throw new Error(`Failed to fetch requirement with buyer: ${error.message}`);
+      }
+
+      return data || null;
+    } catch (error) {
+      console.error('RequirementRepository.getRequirementWithBuyer error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Update a requirement
    * @param {string} requirementId - Requirement ID
    * @param {Object} updateData - Data to update
@@ -100,7 +127,7 @@ class RequirementRepository {
    */
   async updateRequirement(requirementId, updateData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirements')
         .update({
           ...updateData,
@@ -128,7 +155,7 @@ class RequirementRepository {
    */
   async deleteRequirement(requirementId) {
     try {
-      const { error } = await supabase
+      const { error } = await this.supabase
         .from('requirements')
         .delete()
         .eq('id', requirementId);
@@ -151,7 +178,7 @@ class RequirementRepository {
    */
   async getBuyerRequirementStatistics(buyerId) {
     try {
-      const { count: totalCount, error: totalError } = await supabase
+      const { count: totalCount, error: totalError } = await this.supabase
         .from('requirements')
         .select('id', { count: 'exact', head: true })
         .eq('buyer_id', buyerId);
@@ -160,7 +187,7 @@ class RequirementRepository {
         throw new Error(`Failed to fetch total requirements: ${totalError.message}`);
       }
 
-      const { data: requirements, error: requirementsError } = await supabase
+      const { data: requirements, error: requirementsError } = await this.supabase
         .from('requirements')
         .select('status')
         .eq('buyer_id', buyerId);
@@ -200,7 +227,7 @@ class RequirementRepository {
   async getAllRequirements(options = {}) {
     try {
       // Select only fields needed for list view to reduce payload size
-      let query = supabase
+      let query = this.supabase
         .from('requirements')
         .select(`
           id, requirement_text, requirement_no, quantity, product_type, image_url, created_at, updated_at, buyer_id, notes, product_link, status,
@@ -209,7 +236,8 @@ class RequirementRepository {
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 200 });
+      // For admin/manufacturer views we want all recent requirements by default.
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 1000, maxLimit: 1000 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);
@@ -238,7 +266,7 @@ class RequirementRepository {
    */
   async createRequirementResponse(responseData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirement_responses')
         .insert([responseData])
         .select()
@@ -262,7 +290,7 @@ class RequirementRepository {
    */
   async getRequirementResponses(requirementId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirement_responses')
         .select(`
           *,
@@ -290,14 +318,14 @@ class RequirementRepository {
    */
   async getManufacturerResponse(requirementId, manufacturerId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirement_responses')
         .select('*')
         .eq('requirement_id', requirementId)
         .eq('manufacturer_id', manufacturerId)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to fetch manufacturer response: ${error.message}`);
       }
 
@@ -315,13 +343,13 @@ class RequirementRepository {
    */
   async getRequirementResponseById(responseId) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirement_responses')
         .select('*')
         .eq('id', responseId)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error && !this.isNotFoundError(error)) {
         throw new Error(`Failed to fetch requirement response: ${error.message}`);
       }
 
@@ -340,7 +368,7 @@ class RequirementRepository {
    */
   async updateRequirementResponse(responseId, updateData) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('requirement_responses')
         .update({
           ...updateData,
@@ -369,7 +397,7 @@ class RequirementRepository {
    */
   async getManufacturerResponses(manufacturerId, options = {}) {
     try {
-      let query = supabase
+      let query = this.supabase
         .from('requirement_responses')
         .select(`
           *,
@@ -384,7 +412,7 @@ class RequirementRepository {
 
       query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      const { limit, offset } = normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
 
       query = query.limit(limit);
       query = query.range(offset, offset + limit - 1);
@@ -411,7 +439,7 @@ class RequirementRepository {
    */
   async getActiveRequirementsForConversation(buyerId, manufacturerId) {
     try {
-      const { data: responses, error: responsesError } = await supabase
+      const { data: responses, error: responsesError } = await this.supabase
         .from('requirement_responses')
         .select(`
           requirement_id,
@@ -450,6 +478,70 @@ class RequirementRepository {
       return requirements;
     } catch (error) {
       console.error('RequirementRepository.getActiveRequirementsForConversation error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get milestone payouts that are pending admin transfer.
+   * @returns {Promise<Array>} Pending payouts with payout metadata
+   */
+  async getPendingMilestonePayouts() {
+    try {
+      const { data: responses, error } = await this.supabase
+        .from('requirement_responses')
+        .select(`
+          *,
+          requirement:requirements(
+            id,
+            requirement_no,
+            product_type,
+            quantity,
+            buyer_id,
+            buyer:buyer_profiles(id, full_name, phone_number, business_address)
+          ),
+          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number)
+        `)
+        .or('status.eq.accepted,status.eq.milestone_1_done,status.eq.milestone_2_done,status.eq.delivered')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        throw new Error(`Failed to fetch pending milestone payouts: ${error.message}`);
+      }
+
+      return (responses || [])
+        .filter((r) => {
+          if (r.status === 'accepted' && !r.m1_paid_at) return true;
+          if (r.status === 'milestone_1_done' && !r.m2_paid_at) return true;
+          if (r.status === 'delivered' && !r.final_paid_at) return true;
+          return false;
+        })
+        .map((r) => {
+          if (r.status === 'accepted' && !r.m1_paid_at) {
+            return {
+              ...r,
+              pendingMilestone: 'm1',
+              payoutAmount: r.quoted_price ? (r.quoted_price * PAYOUT_RATES.M1_NET) : 0,
+              payoutLabel: 'M1 Payout (30% - 3% fee = 27%)'
+            };
+          }
+          if (r.status === 'milestone_1_done' && !r.m2_paid_at) {
+            return {
+              ...r,
+              pendingMilestone: 'm2',
+              payoutAmount: r.quoted_price ? (r.quoted_price * PAYOUT_RATES.M2_NET) : 0,
+              payoutLabel: 'M2 Payout (20% - 2% fee = 18%)'
+            };
+          }
+          return {
+            ...r,
+            pendingMilestone: 'final',
+            payoutAmount: r.quoted_price ? (r.quoted_price * PAYOUT_RATES.FINAL_NET) : 0,
+            payoutLabel: 'Final Payout (50% - 5% fee = 45%)'
+          };
+        });
+    } catch (error) {
+      console.error('RequirementRepository.getPendingMilestonePayouts error:', error);
       throw error;
     }
   }
