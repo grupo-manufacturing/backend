@@ -72,6 +72,7 @@ const DatabaseService = {
   getBuyerRequirementStatistics: (...args) => RequirementRepository.getBuyerRequirementStatistics(...args),
   getAllRequirements: (...args) => RequirementRepository.getAllRequirements(...args),
   getTotalRevenueFromResponses: (...args) => RequirementRepository.getTotalRevenueFromResponses(...args),
+  getTopManufacturerByRevenue: (...args) => RequirementRepository.getTopManufacturerByRevenue(...args),
 
   // =============================================
   // REQUIREMENT RESPONSE METHODS

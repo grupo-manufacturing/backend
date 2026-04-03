@@ -796,15 +796,19 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
 });
 
 // GET /api/requirements/admin/metrics/overview (Admin only)
-// Returns aggregate metrics for the admin overview tab (currently: totalRevenue)
+// Returns aggregate metrics for the admin overview tab (currently: totalRevenue, topManufacturer)
 router.get('/admin/metrics/overview', authenticateAdmin, async (req, res) => {
   try {
-    const totalRevenue = await databaseService.getTotalRevenueFromResponses();
+    const [totalRevenue, topManufacturer] = await Promise.all([
+      databaseService.getTotalRevenueFromResponses(),
+      databaseService.getTopManufacturerByRevenue()
+    ]);
 
     return res.status(200).json({
       success: true,
       data: {
-        totalRevenue
+        totalRevenue,
+        topManufacturer
       }
     });
   } catch (error) {

@@ -572,6 +572,84 @@ class RequirementRepository extends BaseRepository {
       throw error;
     }
   }
+
+  /**
+   * Get top manufacturer by revenue based on requirement_responses.
+   * Uses quoted_price for revenue and counts accepted vs total responses.
+   * @returns {Promise<object|null>} Top manufacturer summary or null
+   */
+  async getTopManufacturerByRevenue() {
+    try {
+      const { data, error } = await this.supabase
+        .from('requirement_responses')
+        .select(`
+          manufacturer_id,
+          status,
+          quoted_price,
+          manufacturer:manufacturer_profiles(id, manufacturer_id, unit_name, phone_number)
+        `);
+
+      if (error) {
+        throw new Error(`Failed to fetch requirement responses for top manufacturer: ${error.message}`);
+      }
+
+      const statsByManufacturer = new Map();
+
+      (data || []).forEach((row) => {
+        const manufacturerId = row.manufacturer_id;
+        if (!manufacturerId) return;
+
+        const key = String(manufacturerId);
+        const existing =
+          statsByManufacturer.get(key) || {
+            name:
+              row.manufacturer?.unit_name ||
+              row.manufacturer?.manufacturer_id ||
+              'Unknown Manufacturer',
+            phone: row.manufacturer?.phone_number || '',
+            total: 0,
+            acceptedCount: 0,
+            totalOrdersCount: 0
+          };
+
+        const quoted = Number(row.quoted_price) || 0;
+        const status = String(row.status || '').toLowerCase();
+        // Treat all post-acceptance / in-progress / completed statuses as "accepted-like"
+        const isAcceptedLike = !['submitted', 'rejected'].includes(status);
+
+        const updated = {
+          name: existing.name,
+          phone: existing.phone,
+          total: existing.total + quoted,
+          acceptedCount: existing.acceptedCount + (isAcceptedLike ? 1 : 0),
+          totalOrdersCount: existing.totalOrdersCount + 1
+        };
+
+        statsByManufacturer.set(key, updated);
+      });
+
+      let top = null;
+      statsByManufacturer.forEach((value) => {
+        if (!top) {
+          top = value;
+          return;
+        }
+
+        const better =
+          value.total > top.total ||
+          (value.total === top.total && value.totalOrdersCount > top.totalOrdersCount);
+
+        if (better) {
+          top = value;
+        }
+      });
+
+      return top;
+    } catch (error) {
+      console.error('RequirementRepository.getTopManufacturerByRevenue error:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new RequirementRepository();
