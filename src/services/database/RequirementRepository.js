@@ -545,6 +545,33 @@ class RequirementRepository extends BaseRepository {
       throw error;
     }
   }
+
+  /**
+   * Get total revenue across all requirement responses.
+   * This sums quoted_price from requirement_responses without any status filter.
+   * @returns {Promise<number>} Total revenue (sum of quoted_price)
+   */
+  async getTotalRevenueFromResponses() {
+    try {
+      const { data, error } = await this.supabase
+        .from('requirement_responses')
+        .select('quoted_price');
+
+      if (error) {
+        throw new Error(`Failed to fetch requirement responses for revenue: ${error.message}`);
+      }
+
+      const total = (data || []).reduce((sum, row) => {
+        const value = Number(row.quoted_price) || 0;
+        return sum + value;
+      }, 0);
+
+      return total;
+    } catch (error) {
+      console.error('RequirementRepository.getTotalRevenueFromResponses error:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new RequirementRepository();

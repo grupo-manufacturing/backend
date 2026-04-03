@@ -71,6 +71,7 @@ const DatabaseService = {
   deleteRequirement: (...args) => RequirementRepository.deleteRequirement(...args),
   getBuyerRequirementStatistics: (...args) => RequirementRepository.getBuyerRequirementStatistics(...args),
   getAllRequirements: (...args) => RequirementRepository.getAllRequirements(...args),
+  getTotalRevenueFromResponses: (...args) => RequirementRepository.getTotalRevenueFromResponses(...args),
 
   // =============================================
   // REQUIREMENT RESPONSE METHODS

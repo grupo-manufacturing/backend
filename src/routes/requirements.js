@@ -795,4 +795,26 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
   }
 });
 
+// GET /api/requirements/admin/metrics/overview (Admin only)
+// Returns aggregate metrics for the admin overview tab (currently: totalRevenue)
+router.get('/admin/metrics/overview', authenticateAdmin, async (req, res) => {
+  try {
+    const totalRevenue = await databaseService.getTotalRevenueFromResponses();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalRevenue
+      }
+    });
+  } catch (error) {
+    console.error('Get admin overview metrics error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch admin overview metrics',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
