@@ -3,269 +3,131 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const databaseService = require('./databaseService');
 
-// Initialize Twilio client
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
 
+const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
+
 class AuthService {
-  /**
-   * Generate a random OTP using cryptographically secure method
-   * @param {number} length - Length of OTP
-   * @returns {string} Generated OTP
-   */
   generateOTP(length = parseInt(process.env.OTP_LENGTH) || 6) {
     const digits = '0123456789';
-    let otp = '';
     const buffer = crypto.randomBytes(length);
+    let otp = '';
     for (let i = 0; i < length; i++) {
       otp += digits[buffer[i] % digits.length];
     }
     return otp;
   }
 
-  /**
-   * Get daily OTP send count for a phone number
-   * @param {string} phoneNumber - Phone number
-   * @returns {Promise<number>} Number of OTPs sent today
-   */
   async getDailyOTPCount(phoneNumber) {
     try {
       return await databaseService.getDailyOTPCount(phoneNumber);
-    } catch (error) {
-      console.warn('Error getting daily OTP count:', error);
+    } catch {
       return 0;
     }
   }
 
-  /**
-   * Send OTP via Twilio SMS
-   * @param {string} phoneNumber - Phone number to send OTP to
-   * @param {string} role - User role ('buyer' or 'manufacturer')
-   * @returns {Promise<Object>} Result object
-   */
   async sendOTP(phoneNumber, role = 'buyer') {
+    if (!this.isValidPhoneNumber(phoneNumber)) {
+      throw new Error('Invalid phone number format');
+    }
+
+    const dailyCount = await this.getDailyOTPCount(phoneNumber);
+    if (dailyCount >= 3) {
+      throw new Error('You have reached the maximum of 3 OTP requests per day. Please try again tomorrow.');
+    }
+
     try {
-      // Validate phone number format
-      if (!this.isValidPhoneNumber(phoneNumber)) {
-        throw new Error('Invalid phone number format');
-      }
+      await databaseService.expireActiveOtps(phoneNumber);
+    } catch (e) {
+      console.warn('Could not expire previous OTPs:', e?.message || e);
+    }
 
-      // Check daily resend limit (max 3 per day)
-      const dailyCount = await this.getDailyOTPCount(phoneNumber);
-      if (dailyCount >= 3) {
-        throw new Error('You have reached the maximum of 3 OTP requests per day. Please try again tomorrow.');
-      }
+    const otp = this.generateOTP();
+    const expiresAt = new Date(Date.now() + (parseInt(process.env.OTP_EXPIRY_MINUTES) || 2) * 60 * 1000);
 
-      // Proactively expire any previous active OTPs for this phone
-      try {
-        await databaseService.expireActiveOtps(phoneNumber);
-      } catch (e) {
-        // Do not block OTP sending if cleanup fails; log for observability
-        console.warn('Could not expire previous OTPs:', e?.message || e);
-      }
+    await databaseService.storeOTPSession({
+      phone_number: phoneNumber,
+      otp_code_hash: hash(otp),
+      expires_at: expiresAt.toISOString(),
+      is_verified: false,
+      attempts: 0
+    });
 
-      // Generate new OTP
-      const otp = this.generateOTP();
-      const expiryTime = new Date(Date.now() + (parseInt(process.env.OTP_EXPIRY_MINUTES) || 2) * 60 * 1000);
-      const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
-
-      // Store OTP hash in database (never store plaintext OTP)
-      const otpData = {
-        phone_number: phoneNumber,
-        otp_code_hash: otpHash,
-        expires_at: expiryTime.toISOString(),
-        is_verified: false,
-        attempts: 0
-      };
-
-      await databaseService.storeOTPSession(otpData);
-
-      // Send SMS via Twilio
+    try {
       const message = await twilioClient.messages.create({
         body: `Your Grupo verification code is: ${otp}. This code expires in ${process.env.OTP_EXPIRY_MINUTES || 2} minutes.`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: phoneNumber
       });
 
-      console.log(`OTP sent to ${phoneNumber}. Message SID: ${message.sid}`);
-
-      return {
-        success: true,
-        message: 'OTP sent successfully',
-        messageSid: message.sid,
-        expiresIn: process.env.OTP_EXPIRY_MINUTES || 2
-      };
-
+      console.log(`OTP sent to ${phoneNumber}. SID: ${message.sid}`);
+      return { success: true, messageSid: message.sid, expiresIn: process.env.OTP_EXPIRY_MINUTES || 2 };
     } catch (error) {
-      console.error('Error sending OTP:', error);
-      
-      // Handle Twilio-specific errors
-      if (error.code) {
-        switch (error.code) {
-          case 21211:
-            throw new Error('Invalid phone number');
-          case 21610:
-            throw new Error('Phone number is not verified (trial account)');
-          case 21408:
-            throw new Error('Permission to send SMS denied');
-          default:
-            throw new Error(`SMS sending failed: ${error.message}`);
-        }
-      }
-      
-      throw error;
+      const twilioErrors = { 21211: 'Invalid phone number', 21610: 'Phone number is not verified (trial account)', 21408: 'Permission to send SMS denied' };
+      throw new Error(twilioErrors[error.code] || `SMS sending failed: ${error.message}`);
     }
   }
 
-  /**
-   * Verify OTP and create/update profile
-   * @param {string} phoneNumber - Phone number
-   * @param {string} otp - OTP to verify
-   * @param {string} role - User role ('buyer' or 'manufacturer')
-   * @returns {Promise<Object>} Result object
-   */
   async verifyOTP(phoneNumber, otp, role = 'buyer') {
-    try {
-      // Get OTP session from database
-      const storedOTP = await databaseService.findOTPSession(phoneNumber);
+    const storedOTP = await databaseService.findOTPSession(phoneNumber);
 
-      if (!storedOTP) {
-        throw new Error('OTP not found or expired');
-      }
+    if (!storedOTP) throw new Error('OTP not found or expired');
+    if (new Date() > new Date(storedOTP.expires_at)) throw new Error('OTP has expired');
+    if (storedOTP.is_verified) throw new Error('OTP has already been used');
+    if (storedOTP.attempts >= 3) throw new Error('Too many failed attempts. Please request a new OTP.');
 
-      // Check if OTP has expired
-      if (new Date() > new Date(storedOTP.expires_at)) {
-        throw new Error('OTP has expired');
-      }
-
-      // Check if already verified
-      if (storedOTP.is_verified) {
-        throw new Error('OTP has already been used');
-      }
-
-      // Check attempt limit (max 3 attempts)
-      if (storedOTP.attempts >= 3) {
-        throw new Error('Too many failed attempts. Please request a new OTP.');
-      }
-
-      // Verify OTP by comparing hashes
-      const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
-      if (storedOTP.otp_code_hash !== otpHash) {
-        // Increment attempts on the specific OTP session row
-        await databaseService.updateOTPSession(storedOTP.id, {
-          attempts: storedOTP.attempts + 1
-        });
-        throw new Error('Invalid OTP');
-      }
-
-      // Mark OTP as verified
-      await databaseService.updateOTPSession(storedOTP.id, {
-        is_verified: true
-      });
-
-      // Check if profile exists, create if not
-      let profile = null;
-      if (role === 'buyer') {
-        profile = await databaseService.findBuyerProfileByPhone(phoneNumber);
-        
-        if (!profile) {
-          // Create new buyer profile
-          const profileData = {
-            phone_number: phoneNumber
-          };
-          profile = await databaseService.createBuyerProfile(profileData);
-          console.log(`New buyer profile created: ${phoneNumber}`);
-        } else {
-          // Update existing buyer profile (no update needed on login)
-          console.log(`Existing buyer profile found: ${phoneNumber}`);
-        }
-      } else if (role === 'manufacturer') {
-        profile = await databaseService.findManufacturerProfileByPhone(phoneNumber);
-        
-        if (!profile) {
-          // Create new manufacturer profile
-          const profileData = {
-            phone_number: phoneNumber,
-            // New manufacturers must be manually approved from admin panel
-            is_verified: false
-          };
-          profile = await databaseService.createManufacturerProfile(profileData);
-          console.log(`New manufacturer profile created: ${phoneNumber}`);
-        } else {
-          // Preserve existing verification status (admin-controlled)
-          console.log(`Existing manufacturer profile found: ${phoneNumber}`);
-        }
-      } else if (role === 'admin') {
-        // For admin, we don't create a profile but still need a user ID for JWT
-        // Use a dummy profile structure or check for admin profiles
-        // For now, we'll use a mock profile structure with phone number as ID
-        profile = {
-          id: `admin_${phoneNumber.replace(/\+/g, '')}`,
-          phone_number: phoneNumber,
-          role: 'admin'
-        };
-        console.log(`Admin authentication: ${phoneNumber}`);
-      }
-
-      // Generate JWT token with profile id and role
-      const token = this.generateJWT(profile.id, phoneNumber, role);
-
-      // Store user session in database (skip for admin as they don't have a profile)
-      if (role !== 'admin') {
-        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-        const sessionData = {
-          profile_id: profile.id,
-          profile_type: role,
-          token_hash: tokenHash,
-          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
-        };
-        await databaseService.storeUserSession(sessionData);
-      }
-
-      return {
-        success: true,
-        message: 'OTP verified successfully',
-        token,
-        user: {
-          id: profile.id,
-          phoneNumber: profile.phone_number,
-          role: role,
-          verified: role === 'manufacturer' ? (profile.is_verified || false) : true
-        }
-      };
-
-    } catch (error) {
-      console.error('Error verifying OTP:', error);
-      throw error;
+    if (storedOTP.otp_code_hash !== hash(otp)) {
+      await databaseService.updateOTPSession(storedOTP.id, { attempts: storedOTP.attempts + 1 });
+      throw new Error('Invalid OTP');
     }
-  }
 
-  /**
-   * Generate JWT token
-   * @param {string} phoneNumber - Phone number
-   * @param {string} role - User role ('buyer' or 'manufacturer')
-   * @returns {string} JWT token
-   */
-  generateJWT(userId, phoneNumber, role) {
-    const payload = {
-      userId,
-      phoneNumber,
-      role,
-      type: 'auth'
+    await databaseService.updateOTPSession(storedOTP.id, { is_verified: true });
+
+    let profile;
+    if (role === 'buyer') {
+      profile = await databaseService.findBuyerProfileByPhone(phoneNumber);
+      if (!profile) profile = await databaseService.createBuyerProfile({ phone_number: phoneNumber });
+    } else if (role === 'manufacturer') {
+      profile = await databaseService.findManufacturerProfileByPhone(phoneNumber);
+      if (!profile) profile = await databaseService.createManufacturerProfile({ phone_number: phoneNumber, is_verified: false });
+    } else if (role === 'admin') {
+      profile = { id: `admin_${phoneNumber.replace(/\+/g, '')}`, phone_number: phoneNumber, role: 'admin' };
+    }
+
+    const token = this.generateJWT(profile.id, phoneNumber, role);
+
+    if (role !== 'admin') {
+      await databaseService.storeUserSession({
+        profile_id: profile.id,
+        profile_type: role,
+        token_hash: hash(token),
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      });
+    }
+
+    return {
+      success: true,
+      token,
+      user: {
+        id: profile.id,
+        phoneNumber: profile.phone_number,
+        role,
+        verified: role === 'manufacturer' ? (profile.is_verified || false) : true
+      }
     };
-
-    return jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN || '24h'
-    });
   }
 
-  /**
-   * Verify JWT token
-   * @param {string} token - JWT token
-   * @returns {Object} Decoded token payload
-   */
+  generateJWT(userId, phoneNumber, role) {
+    return jwt.sign(
+      { userId, phoneNumber, role, type: 'auth' },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+    );
+  }
+
   verifyJWT(token) {
     try {
       return jwt.verify(token, process.env.JWT_SECRET);
@@ -275,70 +137,26 @@ class AuthService {
     }
   }
 
-  /**
-   * Validate phone number format
-   * @param {string} phoneNumber - Phone number to validate
-   * @returns {boolean} Is valid phone number
-   */
   isValidPhoneNumber(phoneNumber) {
-    // Basic phone number validation (E.164 format)
-    const phoneRegex = /^\+[1-9]\d{1,14}$/;
-    return phoneRegex.test(phoneNumber);
+    return /^\+[1-9]\d{1,14}$/.test(phoneNumber);
   }
 
-  /**
-   * Logout user by deactivating session
-   * @param {string} token - JWT token
-   * @returns {Promise<Object>} Result object
-   */
   async logout(token) {
-    try {
-      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      await databaseService.deactivateUserSession(tokenHash);
-      
-      return {
-        success: true,
-        message: 'Logged out successfully'
-      };
-    } catch (error) {
-      console.error('Error during logout:', error);
-      throw error;
-    }
+    await databaseService.deactivateUserSession(hash(token));
+    return { success: true };
   }
 
-  /**
-   * Check whether a JWT token has an active server-side session.
-   * @param {string} token - JWT token
-   * @returns {Promise<Object|null>} Active session data or null
-   */
   async findActiveSessionByToken(token) {
-    try {
-      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      return databaseService.findUserSession(tokenHash);
-    } catch (error) {
-      console.error('Error finding active session by token:', error);
-      throw error;
-    }
+    return databaseService.findUserSession(hash(token));
   }
 
-  /**
-   * Clean up expired OTPs and sessions
-   */
   async cleanupExpiredData() {
-    try {
-      const otpCount = await databaseService.cleanupExpiredOTPs();
-      const sessionCount = await databaseService.cleanupExpiredSessions();
-      
-      console.log(`Cleanup completed: ${otpCount} expired OTPs, ${sessionCount} expired sessions removed`);
-      
-      return {
-        expiredOTPs: otpCount,
-        expiredSessions: sessionCount
-      };
-    } catch (error) {
-      console.error('Error during cleanup:', error);
-      throw error;
-    }
+    const [otpCount, sessionCount] = await Promise.all([
+      databaseService.cleanupExpiredOTPs(),
+      databaseService.cleanupExpiredSessions()
+    ]);
+    console.log(`Cleanup: ${otpCount} OTPs, ${sessionCount} sessions removed`);
+    return { expiredOTPs: otpCount, expiredSessions: sessionCount };
   }
 }
 

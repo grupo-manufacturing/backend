@@ -87,19 +87,17 @@ class ConversationRepository extends BaseRepository {
 
       const conversationIds = conversations.map(c => c.id);
 
-      // Batch fetch unread counts per conversation in a single grouped query
-      const { data: unreadCounts, error: unreadError } = await this.supabase
+      const { data: unreadMessages, error: unreadError } = await this.supabase
         .from('messages')
-        .select('conversation_id, unread_count:count(*)')
+        .select('conversation_id')
         .in('conversation_id', conversationIds)
         .eq('is_read', false)
         .neq('sender_id', userId);
 
-      // Map grouped unread counts by conversation_id
       const unreadCountsMap = {};
-      if (!unreadError && unreadCounts && Array.isArray(unreadCounts)) {
-        unreadCounts.forEach((row) => {
-          unreadCountsMap[row.conversation_id] = Number(row.unread_count) || 0;
+      if (!unreadError && Array.isArray(unreadMessages)) {
+        unreadMessages.forEach((row) => {
+          unreadCountsMap[row.conversation_id] = (unreadCountsMap[row.conversation_id] || 0) + 1;
         });
       } else if (unreadError) {
         console.error('ConversationRepository.listConversations unread count error:', unreadError);
@@ -315,4 +313,3 @@ class ConversationRepository extends BaseRepository {
 }
 
 module.exports = new ConversationRepository();
-

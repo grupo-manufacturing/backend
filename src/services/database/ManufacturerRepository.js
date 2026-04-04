@@ -1,180 +1,78 @@
-/**
- * Manufacturer Repository - Manufacturer profile management
- */
 const { BaseRepository } = require('./BaseRepository');
 const { applySorting } = require('../../utils/queryOptionsHelper');
 
 class ManufacturerRepository extends BaseRepository {
-  /**
-   * Create a new manufacturer profile
-   * @param {Object} profileData - Manufacturer profile data
-   * @returns {Promise<Object>} Created manufacturer profile
-   */
   async createManufacturerProfile(profileData) {
-    try {
-      const { data, error } = await this.supabase
-        .from('manufacturer_profiles')
-        .insert([profileData])
-        .select()
-        .single();
-
-      if (error) {
-        throw new Error(`Failed to create manufacturer profile: ${error.message}`);
-      }
-
-      return data;
-    } catch (error) {
-      console.error('ManufacturerRepository.createManufacturerProfile error:', error);
-      throw error;
-    }
+    const { data, error } = await this.supabase
+      .from('manufacturer_profiles')
+      .insert([profileData])
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to create manufacturer profile: ${error.message}`);
+    return data;
   }
 
-  /**
-   * Find manufacturer profile by phone number
-   * @param {string} phoneNumber - Phone number
-   * @returns {Promise<Object|null>} Manufacturer profile data or null
-   */
   async findManufacturerProfileByPhone(phoneNumber) {
-    try {
-      const { data, error } = await this.supabase
-        .from('manufacturer_profiles')
-        .select('*')
-        .eq('phone_number', phoneNumber)
-        .single();
-
-      if (error && !this.isNotFoundError(error)) {
-        throw new Error(`Failed to find manufacturer profile: ${error.message}`);
-      }
-
-      return data || null;
-    } catch (error) {
-      console.error('ManufacturerRepository.findManufacturerProfileByPhone error:', error);
-      throw error;
-    }
+    const { data, error } = await this.supabase
+      .from('manufacturer_profiles')
+      .select('*')
+      .eq('phone_number', phoneNumber)
+      .single();
+    if (error && !this.isNotFoundError(error)) throw new Error(`Failed to find manufacturer profile: ${error.message}`);
+    return data || null;
   }
 
-  /**
-   * Update manufacturer profile data by phone
-   * @param {string} phoneNumber - Phone number
-   * @param {Object} updateData - Data to update
-   * @returns {Promise<Object>} Updated manufacturer profile
-   */
   async updateManufacturerProfileByPhone(phoneNumber, updateData) {
-    try {
-      const { data, error } = await this.supabase
-        .from('manufacturer_profiles')
-        .update(updateData)
-        .eq('phone_number', phoneNumber)
-        .select()
-        .single();
-
-      if (error) {
-        throw new Error(`Failed to update manufacturer profile: ${error.message}`);
-      }
-
-      return data;
-    } catch (error) {
-      console.error('ManufacturerRepository.updateManufacturerProfileByPhone error:', error);
-      throw error;
-    }
+    const { data, error } = await this.supabase
+      .from('manufacturer_profiles')
+      .update(updateData)
+      .eq('phone_number', phoneNumber)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update manufacturer profile: ${error.message}`);
+    return data;
   }
 
-  /**
-   * Find manufacturer profile by profile ID
-   * @param {string} profileId - Profile ID
-   * @returns {Promise<Object>} Manufacturer profile data
-   */
   async findManufacturerProfile(profileId) {
-    try {
-      const { data, error } = await this.supabase
-        .from('manufacturer_profiles')
-        .select('*')
-        .eq('id', profileId)
-        .single();
-
-      if (error && !this.isNotFoundError(error)) {
-        throw new Error(`Failed to find manufacturer profile: ${error.message}`);
-      }
-
-      return data;
-    } catch (error) {
-      console.error('ManufacturerRepository.findManufacturerProfile error:', error);
-      throw error;
-    }
+    const { data, error } = await this.supabase
+      .from('manufacturer_profiles')
+      .select('*')
+      .eq('id', profileId)
+      .single();
+    if (error && !this.isNotFoundError(error)) throw new Error(`Failed to find manufacturer profile: ${error.message}`);
+    return data;
   }
 
-  /**
-   * Update manufacturer profile
-   * @param {string} profileId - Profile ID
-   * @param {Object} profileData - Profile data to update
-   * @returns {Promise<Object>} Updated profile data
-   */
   async updateManufacturerProfile(profileId, profileData) {
-    try {
-      const { data, error } = await this.supabase
-        .from('manufacturer_profiles')
-        .update({
-          ...profileData,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', profileId)
-        .select()
-        .single();
-
-      if (error) {
-        if (this.isNotFoundError(error)) {
-          throw new Error('Manufacturer profile not found');
-        }
-        throw new Error(`Failed to update manufacturer profile: ${error.message}`);
-      }
-
-      return data;
-    } catch (error) {
-      console.error('ManufacturerRepository.updateManufacturerProfile error:', error);
-      throw error;
+    const { data, error } = await this.supabase
+      .from('manufacturer_profiles')
+      .update({ ...profileData, updated_at: new Date().toISOString() })
+      .eq('id', profileId)
+      .select()
+      .single();
+    if (error) {
+      throw new Error(this.isNotFoundError(error) ? 'Manufacturer profile not found' : `Failed to update manufacturer profile: ${error.message}`);
     }
+    return data;
   }
 
-  /**
-   * Get all manufacturers
-   * @param {Object} options - Query options (filters, sorting, pagination)
-   * @returns {Promise<Array>} Array of manufacturer profiles
-   */
   async getAllManufacturers(options = {}) {
-    try {
-      // Select only fields needed for list view to reduce payload size
-      let query = this.supabase.from('manufacturer_profiles')
-        .select('id, manufacturer_id, unit_name, business_type, phone_number, gst_number, pan_number, product_types, is_verified, created_at');
+    let query = this.supabase
+      .from('manufacturer_profiles')
+      .select('id, manufacturer_id, unit_name, business_type, phone_number, gst_number, pan_number, product_types, is_verified, created_at');
 
-      // Apply filters if provided
-      if (options.verified !== undefined) {
-        query = query.eq('is_verified', options.verified);
-      }
+    if (options.verified !== undefined) query = query.eq('is_verified', options.verified);
+    if (options.business_type) query = query.eq('business_type', options.business_type);
 
-      if (options.business_type) {
-        query = query.eq('business_type', options.business_type);
-      }
+    query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
 
-      query = applySorting(query, options, { defaultSortBy: 'created_at', defaultSortOrder: 'desc' });
+    const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
+    query = query.limit(limit).range(offset, offset + limit - 1);
 
-      const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
-
-      query = query.limit(limit);
-      query = query.range(offset, offset + limit - 1);
-
-      const { data, error } = await query;
-
-      if (error) {
-        throw new Error(`Failed to fetch manufacturers: ${error.message}`);
-      }
-
-      return data || [];
-    } catch (error) {
-      console.error('ManufacturerRepository.getAllManufacturers error:', error);
-      throw error;
-    }
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to fetch manufacturers: ${error.message}`);
+    return data || [];
   }
 }
 
 module.exports = new ManufacturerRepository();
-

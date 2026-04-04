@@ -1,15 +1,8 @@
-/**
- * Order Repository - Orders management
- */
 const { BaseRepository } = require('./BaseRepository');
 const { applySorting } = require('../../utils/queryOptionsHelper');
 
 class OrderRepository extends BaseRepository {
-  /**
-   * Create a new order
-   * @param {Object} orderData - Order data (buyer_id, manufacturer_id, design_id, quantity, price_per_unit, total_price)
-   * @returns {Promise<Object>} Created order
-   */
+  
   async createOrder(orderData) {
     try {
       const { data, error } = await this.supabase
@@ -34,12 +27,7 @@ class OrderRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get orders for a manufacturer
-   * @param {string} manufacturerId - Manufacturer ID
-   * @param {Object} options - Query options (status filter, sorting, pagination)
-   * @returns {Promise<Array>} Array of orders with design and buyer info
-   */
+  
   async getManufacturerOrders(manufacturerId, options = {}) {
     try {
       let query = this.supabase
@@ -73,11 +61,7 @@ class OrderRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a single order by ID
-   * @param {string} orderId - Order ID
-   * @returns {Promise<Object>} Order data
-   */
+  
   async getOrder(orderId) {
     try {
       const { data, error } = await this.supabase
@@ -102,12 +86,7 @@ class OrderRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get orders for a buyer
-   * @param {string} buyerId - Buyer ID
-   * @param {Object} options - Query options (status filter, sorting, pagination)
-   * @returns {Promise<Array>} Array of orders with design and manufacturer info
-   */
+  
   async getBuyerOrders(buyerId, options = {}) {
     try {
       let query = this.supabase
@@ -141,12 +120,7 @@ class OrderRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Update order status
-   * @param {string} orderId - Order ID
-   * @param {string} status - New status
-   * @returns {Promise<Object>} Updated order
-   */
+  
   async updateOrderStatus(orderId, status) {
     try {
       const { data, error } = await this.supabase
@@ -175,12 +149,7 @@ class OrderRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get requirement-response orders for admin workflows.
-   * Note: This queries requirement_responses table, not orders table.
-   * @param {Object} options - Query options (status filter, sorting, pagination)
-   * @returns {Promise<Array>} Array of requirement-response orders with buyer and manufacturer info
-   */
+  
   async getRequirementResponseOrders(options = {}) {
     try {
       let query = this.supabase
@@ -222,28 +191,17 @@ class OrderRepository extends BaseRepository {
     }
   }
 
-  /**
-   * @deprecated Use getRequirementResponseOrders for clarity.
-   */
+  
   async getOrders(options = {}) {
     return this.getRequirementResponseOrders(options);
   }
 
-  /**
-   * Get admin requirement-response orders (clearer alias for getOrders)
-   * @param {Object} options - Query options (status filter, sorting, pagination)
-   * @returns {Promise<Array>} Array of requirement-response orders
-   */
+  
   async getAdminRequirementOrders(options = {}) {
     return this.getRequirementResponseOrders(options);
   }
 
-  /**
-   * Get manufacturer orders that are cleared_to_ship.
-   * @param {string} manufacturerId - Manufacturer ID
-   * @param {Object} options - Query options (sorting, pagination)
-   * @returns {Promise<Array>} Ready-to-ship orders
-   */
+  
   async getReadyToShipOrders(manufacturerId, options = {}) {
     try {
       let query = this.supabase
@@ -281,4 +239,3 @@ class OrderRepository extends BaseRepository {
 }
 
 module.exports = new OrderRepository();
-

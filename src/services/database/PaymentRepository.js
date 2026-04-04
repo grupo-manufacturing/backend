@@ -1,14 +1,7 @@
-/**
- * Payment Repository - Payments management for the escrow + milestone system
- */
 const { BaseRepository } = require('./BaseRepository');
 
 class PaymentRepository extends BaseRepository {
-  /**
-   * Create a new payment record
-   * @param {Object} paymentData - Payment data
-   * @returns {Promise<Object>} Created payment
-   */
+  
   async createPayment(paymentData) {
     try {
       const { data, error } = await this.supabase
@@ -28,11 +21,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a payment by ID
-   * @param {string} paymentId - Payment ID
-   * @returns {Promise<Object|null>} Payment or null
-   */
+  
   async getPaymentById(paymentId) {
     try {
       const { data, error } = await this.supabase
@@ -52,11 +41,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a payment by ID with related data (response, buyer, manufacturer)
-   * @param {string} paymentId - Payment ID
-   * @returns {Promise<Object|null>} Payment with relations or null
-   */
+  
   async getPaymentWithDetails(paymentId) {
     try {
       const { data, error } = await this.supabase
@@ -94,11 +79,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get all payments for a requirement response
-   * @param {string} requirementResponseId - Requirement response ID
-   * @returns {Promise<Array>} Array of payments
-   */
+  
   async getPaymentsByResponseId(requirementResponseId) {
     try {
       const { data, error } = await this.supabase
@@ -118,12 +99,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a specific payment for a response by payment number
-   * @param {string} requirementResponseId - Requirement response ID
-   * @param {number} paymentNumber - Payment number (1 or 2)
-   * @returns {Promise<Object|null>} Payment or null
-   */
+  
   async getPaymentByResponseAndNumber(requirementResponseId, paymentNumber) {
     try {
       const { data, error } = await this.supabase
@@ -144,11 +120,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a requirement response with requirement in one query
-   * @param {string} requirementResponseId - Requirement response ID
-   * @returns {Promise<Object|null>} Response with nested requirement or null
-   */
+  
   async getRequirementResponseWithRequirement(requirementResponseId) {
     try {
       const { data, error } = await this.supabase
@@ -171,12 +143,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Update a payment
-   * @param {string} paymentId - Payment ID
-   * @param {Object} updateData - Data to update
-   * @returns {Promise<Object>} Updated payment
-   */
+  
   async updatePayment(paymentId, updateData) {
     try {
       const { data, error } = await this.supabase
@@ -200,11 +167,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get all payments pending verification (admin)
-   * @param {Object} options - Query options (limit, offset)
-   * @returns {Promise<Array>} Array of payments pending verification
-   */
+  
   async getPendingVerificationPayments(options = {}) {
     try {
       const { limit, offset } = this.normalizePagination(options, { defaultLimit: 50, maxLimit: 200 });
@@ -243,12 +206,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get all payments for a buyer
-   * @param {string} buyerId - Buyer ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Array of payments
-   */
+  
   async getBuyerPayments(buyerId, options = {}) {
     try {
       const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });
@@ -287,12 +245,7 @@ class PaymentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get all payments for a manufacturer (payouts)
-   * @param {string} manufacturerId - Manufacturer ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Array of payments
-   */
+  
   async getManufacturerPayments(manufacturerId, options = {}) {
     try {
       const { limit, offset } = this.normalizePagination(options, { defaultLimit: 20, maxLimit: 100 });

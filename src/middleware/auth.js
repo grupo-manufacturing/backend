@@ -1,24 +1,16 @@
 const authService = require('../services/authService');
 
-/**
- * Authentication middleware
- * Verifies JWT token and adds user info to request
- */
 const authenticateToken = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
+      return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
     }
 
     const token = authHeader.substring(7);
     const decoded = authService.verifyJWT(token);
 
-    // Add user info to request
     req.user = {
       userId: decoded.userId,
       role: decoded.role,
@@ -27,39 +19,24 @@ const authenticateToken = (req, res, next) => {
     };
 
     next();
-  } catch (error) {
-    console.error('Authentication error:', error);
-    
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid or expired token'
-    });
+  } catch {
+    res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
 };
 
-/**
- * Admin-only authentication middleware.
- * Uses the same JWT verification path as authenticateToken, then enforces role.
- */
 const authenticateAdmin = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
+      return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
     }
 
     const token = authHeader.substring(7);
     const decoded = authService.verifyJWT(token);
 
     if (decoded.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Invalid admin token.'
-      });
+      return res.status(403).json({ success: false, message: 'Access denied. Invalid admin token.' });
     }
 
     req.user = {
@@ -69,28 +46,20 @@ const authenticateAdmin = (req, res, next) => {
       verified: true
     };
 
-    return next();
-  } catch (error) {
-    console.error('Admin authentication error:', error);
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication failed'
-    });
+    next();
+  } catch {
+    res.status(401).json({ success: false, message: 'Authentication failed' });
   }
 };
 
-/**
- * Optional authentication middleware
- * Verifies JWT token if provided, but doesn't require it
- */
 const optionalAuth = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       const decoded = authService.verifyJWT(token);
-      
+
       req.user = {
         userId: decoded.userId,
         role: decoded.role,
@@ -100,35 +69,29 @@ const optionalAuth = (req, res, next) => {
     }
 
     next();
-  } catch (error) {
-    // Continue without authentication if token is invalid
+  } catch {
     next();
   }
 };
 
-/**
- * Role-based authentication middleware
- * @param {string} role - Required role
- */
-const requireRole = (role) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
-    }
+const requireRole = (role) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
 
-    const userRole = req.user.role || 'user';
-    
-    if (userRole !== role) {
-      return res.status(403).json({
-        success: false,
-        message: 'Insufficient permissions'
-      });
-    }
+  if (req.user.role !== role) {
+    return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+  }
 
-    next();
+  next();
+};
+
+const decodeToken = (token) => {
+  const decoded = authService.verifyJWT(token);
+  return {
+    userId: decoded.userId,
+    role: decoded.role,
+    phoneNumber: decoded.phoneNumber
   };
 };
 
@@ -137,17 +100,5 @@ module.exports = {
   authenticateAdmin,
   optionalAuth,
   requireRole,
-  /**
-   * Decode a JWT token string and return user identity for non-HTTP contexts (e.g., WebSockets)
-   * @param {string} token
-   * @returns {{ userId: string, role: string, phoneNumber: string }}
-   */
-  decodeToken: (token) => {
-    const decoded = authService.verifyJWT(token);
-    return {
-      userId: decoded.userId,
-      role: decoded.role,
-      phoneNumber: decoded.phoneNumber
-    };
-  }
+  decodeToken
 };

@@ -1,337 +1,54 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body } = require('express-validator');
 const rateLimit = require('express-rate-limit');
-const authService = require('../services/authService');
-const databaseService = require('../services/databaseService');
 const { authenticateToken } = require('../middleware/auth');
-const { isManufacturerOnboardingComplete } = require('../utils/onboardingUtils');
+const { validate } = require('../middleware/validate');
+const {
+  sendOTP, verifyOTP, refreshToken, verifyToken, logout, adminLogin,
+  getManufacturerProfile, updateManufacturerProfile, manufacturerOnboarding,
+  getBuyerProfile, updateBuyerProfile
+} = require('../controllers/authController');
 
 const router = express.Router();
-
-const ADMIN_CREDENTIALS = {
-  username: process.env.ADMIN_USERNAME,
-  password: process.env.ADMIN_PASSWORD
-};
 
 const otpRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3,
   message: 'Too many OTP requests from this number, please try again after 15 minutes',
-  keyGenerator: (req, res) => req.body.phoneNumber,
+  keyGenerator: (req) => req.body.phoneNumber,
   standardHeaders: false,
   legacyHeaders: false
 });
 
-const validatePhoneNumber = [
+const phoneRules = [
   body('phoneNumber')
     .isMobilePhone('any')
     .withMessage('Please provide a valid phone number')
     .custom((value) => {
-      if (!value.startsWith('+')) {
-        throw new Error('Phone number must include country code (e.g., +1234567890)');
-      }
+      if (!value.startsWith('+')) throw new Error('Phone number must include country code (e.g., +1234567890)');
       return true;
     }),
-  body('role')
-    .optional()
-    .isIn(['buyer', 'manufacturer', 'admin'])
-    .withMessage('Role must be either buyer, manufacturer, or admin')
+  body('role').optional().isIn(['buyer', 'manufacturer', 'admin'])
 ];
 
-const validateOTP = [
-  body('phoneNumber')
-    .isMobilePhone('any')
-    .withMessage('Please provide a valid phone number'),
-  body('otp')
-    .isLength({ min: 4, max: 8 })
-    .withMessage('OTP must be between 4 and 8 digits')
-    .isNumeric()
-    .withMessage('OTP must contain only numbers'),
-  body('role')
-    .optional()
-    .isIn(['buyer', 'manufacturer', 'admin'])
-    .withMessage('Role must be either buyer, manufacturer, or admin')
+const otpRules = [
+  body('phoneNumber').isMobilePhone('any'),
+  body('otp').isLength({ min: 4, max: 8 }).isNumeric().withMessage('OTP must be 4-8 digits'),
+  body('role').optional().isIn(['buyer', 'manufacturer', 'admin'])
 ];
 
-// POST /api/auth/send-otp
-router.post('/send-otp', otpRateLimiter, validatePhoneNumber, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const { phoneNumber, role = 'buyer' } = req.body;
-    const result = await authService.sendOTP(phoneNumber, role);
-
-    res.status(200).json({
-      success: true,
-      message: 'OTP sent successfully',
-      data: {
-        phoneNumber,
-        expiresIn: result.expiresIn,
-        messageSid: result.messageSid
-      }
-    });
-  } catch (error) {
-    console.error('Send OTP error:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Failed to send OTP',
-      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-// POST /api/auth/verify-otp
-router.post('/verify-otp', validateOTP, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const { phoneNumber, otp, role = 'buyer' } = req.body;
-    const result = await authService.verifyOTP(phoneNumber, otp, role);
-
-    res.status(200).json({
-      success: true,
-      message: 'Authentication successful',
-      data: {
-        user: result.user,
-        token: result.token,
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h'
-      }
-    });
-  } catch (error) {
-    console.error('Verify OTP error:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'OTP verification failed',
-      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-// POST /api/auth/refresh-token
-router.post('/refresh-token', authenticateToken, async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader.substring(7);
-    const decoded = req.user;
-
-    // Enforce active-session validation for non-admin roles so revoked tokens
-    // (e.g. after logout) cannot be used to mint fresh JWTs.
-    if (decoded.role !== 'admin') {
-      const activeSession = await authService.findActiveSessionByToken(token);
-      if (!activeSession || activeSession.profile_id !== decoded.userId || activeSession.profile_type !== decoded.role) {
-        return res.status(401).json({
-          success: false,
-          message: 'Token session is inactive or revoked'
-        });
-      }
-    }
-
-    const newToken = authService.generateJWT(decoded.userId, decoded.phoneNumber, decoded.role);
-
-    res.status(200).json({
-      success: true,
-      message: 'Token refreshed successfully',
-      data: {
-        token: newToken,
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h'
-      }
-    });
-  } catch (error) {
-    console.error('Refresh token error:', error);
-    res.status(401).json({
-      success: false,
-      message: 'Invalid or expired token'
-    });
-  }
-});
-
-// GET /api/auth/verify-token
-router.get('/verify-token', authenticateToken, async (req, res) => {
-  try {
-    const decoded = req.user;
-
-    res.status(200).json({
-      success: true,
-      message: 'Token is valid',
-      data: {
-        user: {
-          phoneNumber: decoded.phoneNumber,
-          verified: true
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Verify token error:', error);
-    res.status(401).json({
-      success: false,
-      message: 'Invalid or expired token'
-    });
-  }
-});
-
-// POST /api/auth/logout
-router.post('/logout', authenticateToken, async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader.substring(7);
-    await authService.logout(token);
-
-    res.status(200).json({
-      success: true,
-      message: 'Logged out successfully'
-    });
-  } catch (error) {
-    console.error('Logout error:', error);
-    if (error.message === 'Invalid or expired token') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Logout failed'
-    });
-  }
-});
-
-// POST /api/auth/manufacturer-onboarding
-router.post('/manufacturer-onboarding', authenticateToken, [
-  body('unit_name').notEmpty().isLength({ min: 1, max: 255 }).withMessage('Unit name is required'),
-  body('business_type').notEmpty().isLength({ min: 1, max: 100 }).withMessage('Business type is required'),
-  body('gst_number').notEmpty().isLength({ min: 1, max: 20 }).withMessage('GST number is required'),
-  body('pan_number').notEmpty().isLength({ min: 1, max: 20 }).withMessage('PAN is required'),
+const manufacturerOnboardingRules = [
+  body('unit_name').notEmpty().isLength({ min: 1, max: 255 }),
+  body('business_type').notEmpty().isLength({ min: 1, max: 100 }),
+  body('gst_number').notEmpty().isLength({ min: 1, max: 20 }),
+  body('pan_number').notEmpty().isLength({ min: 1, max: 20 }),
   body('msme_number').optional({ nullable: true, checkFalsy: true }).isLength({ min: 1, max: 50 }),
   body('product_types').isArray({ min: 1 }).withMessage('At least one product type is required'),
-  body('capacity').notEmpty().isInt({ min: 1 }).withMessage('Daily capacity is required and must be greater than 0'),
+  body('capacity').notEmpty().isInt({ min: 1 }).withMessage('Daily capacity must be greater than 0'),
   body('manufacturing_unit_image_url').optional({ nullable: true, checkFalsy: true }).isURL()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
+];
 
-    if (req.user.role !== 'manufacturer') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only manufacturers can submit onboarding'
-      });
-    }
-
-    const decoded = req.user;
-
-    let profile = await databaseService.findManufacturerProfileByPhone(decoded.phoneNumber);
-    if (!profile) {
-      profile = await databaseService.createManufacturerProfile({
-        phone_number: decoded.phoneNumber,
-        is_verified: false
-      });
-    }
-
-    const onboardingData = {
-      unit_name: req.body.unit_name,
-      business_type: req.body.business_type,
-      gst_number: req.body.gst_number,
-      pan_number: req.body.pan_number,
-      msme_number: req.body.msme_number || null,
-      product_types: req.body.product_types || [],
-      daily_capacity: req.body.capacity || 0,
-      manufacturing_unit_image_url: req.body.manufacturing_unit_image_url || null
-    };
-
-    const updatedProfile = await databaseService.updateManufacturerProfile(profile.id, onboardingData);
-
-    res.status(200).json({
-      success: true,
-      message: 'Onboarding completed successfully',
-      data: { profile: updatedProfile }
-    });
-  } catch (error) {
-    console.error('Onboarding submission error:', error);
-    if (error.message === 'Invalid or expired token') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Failed to submit onboarding data'
-    });
-  }
-});
-
-// GET /api/auth/manufacturer-profile
-router.get('/manufacturer-profile', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.role !== 'manufacturer') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only manufacturers can view manufacturer profile'
-      });
-    }
-    const decoded = req.user;
-
-    const profile = await databaseService.findManufacturerProfileByPhone(decoded.phoneNumber);
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
-      });
-    }
-
-    const fullProfile = await databaseService.findManufacturerProfile(profile.id);
-    const normalizedProfile = fullProfile || {
-      phone_number: profile.phone_number,
-      unit_name: '',
-      business_type: '',
-      gst_number: '',
-      pan_number: '',
-      msme_number: '',
-      product_types: [],
-      daily_capacity: 0
-    };
-
-    res.status(200).json({
-      success: true,
-      message: 'Profile retrieved successfully',
-      data: {
-        profile: {
-          ...normalizedProfile,
-          onboarding_complete: isManufacturerOnboardingComplete(normalizedProfile)
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Get manufacturer profile error:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Failed to get profile'
-    });
-  }
-});
-
-// PUT /api/auth/manufacturer-profile
-router.put('/manufacturer-profile', authenticateToken, [
+const manufacturerProfileUpdateRules = [
   body('unit_name').optional().isLength({ min: 1, max: 255 }),
   body('business_type').optional().isLength({ min: 1, max: 100 }),
   body('gst_number').optional().isLength({ min: 1, max: 20 }),
@@ -340,236 +57,32 @@ router.put('/manufacturer-profile', authenticateToken, [
   body('product_types').optional().isArray(),
   body('daily_capacity').optional().isInt({ min: 0 }),
   body('manufacturing_unit_image_url').optional({ nullable: true, checkFalsy: true }).isURL()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
+];
 
-    if (req.user.role !== 'manufacturer') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only manufacturers can update manufacturer profile'
-      });
-    }
-
-    const decoded = req.user;
-
-    const profile = await databaseService.findManufacturerProfileByPhone(decoded.phoneNumber);
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
-      });
-    }
-
-    const allowedFields = [
-      'unit_name',
-      'business_type',
-      'gst_number',
-      'pan_number',
-      'msme_number',
-      'product_types',
-      'daily_capacity',
-      'manufacturing_unit_image_url'
-    ];
-
-    const updateData = {};
-    for (const field of allowedFields) {
-      if (field in req.body) {
-        updateData[field] = req.body[field];
-      }
-    }
-    if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No allowed fields provided for update'
-      });
-    }
-
-    const updatedProfile = await databaseService.updateManufacturerProfile(profile.id, updateData);
-
-    res.status(200).json({
-      success: true,
-      message: 'Profile updated successfully',
-      data: { profile: updatedProfile }
-    });
-  } catch (error) {
-    console.error('Update manufacturer profile error:', error);
-    if (error.message === 'Invalid or expired token') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Failed to update profile'
-    });
-  }
-});
-
-// POST /api/auth/admin-login
-router.post('/admin-login', [
-  body('username').notEmpty().withMessage('Username is required'),
-  body('password').notEmpty().withMessage('Password is required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    if (!ADMIN_CREDENTIALS.username || !ADMIN_CREDENTIALS.password) {
-      return res.status(500).json({
-        success: false,
-        message: 'Admin credentials not configured'
-      });
-    }
-
-    const { username, password } = req.body;
-
-    if (username !== ADMIN_CREDENTIALS.username || password !== ADMIN_CREDENTIALS.password) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid username or password'
-      });
-    }
-
-    const adminProfileId = 'admin_' + ADMIN_CREDENTIALS.username;
-    const token = authService.generateJWT(adminProfileId, ADMIN_CREDENTIALS.username, 'admin');
-
-    res.status(200).json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        token,
-        user: {
-          username: ADMIN_CREDENTIALS.username,
-          role: 'admin'
-        },
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h'
-      }
-    });
-  } catch (error) {
-    console.error('Admin login error:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Login failed'
-    });
-  }
-});
-
-// GET /api/auth/buyer-profile
-router.get('/buyer-profile', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.role !== 'buyer') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only buyers can view buyer profile'
-      });
-    }
-    const decoded = req.user;
-
-    const profile = await databaseService.findBuyerProfileByPhone(decoded.phoneNumber);
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
-      });
-    }
-
-    const fullProfile = await databaseService.findBuyerProfile(profile.id);
-
-    res.status(200).json({
-      success: true,
-      message: 'Profile retrieved successfully',
-      data: {
-        profile: fullProfile || {
-          full_name: '',
-          email: '',
-          phone_number: profile.phone_number,
-          business_address: ''
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Get buyer profile error:', error);
-    if (error.message === 'Invalid or expired token') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Failed to get profile'
-    });
-  }
-});
-
-// PUT /api/auth/buyer-profile
-router.put('/buyer-profile', authenticateToken, [
+const buyerProfileRules = [
   body('full_name').notEmpty().isLength({ min: 1, max: 255 }).withMessage('Full name is required'),
   body('email').notEmpty().isEmail().withMessage('Please provide a valid email address'),
   body('phone_number').optional().isMobilePhone('any'),
   body('business_address').notEmpty().isLength({ min: 1, max: 1000 }).withMessage('Business address is required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please fill up all fields',
-        errors: errors.array()
-      });
-    }
+];
 
-    if (req.user.role !== 'buyer') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only buyers can update buyer profile'
-      });
-    }
-    const decoded = req.user;
+const adminLoginRules = [
+  body('username').notEmpty().withMessage('Username is required'),
+  body('password').notEmpty().withMessage('Password is required')
+];
 
-    const profile = await databaseService.findBuyerProfileByPhone(decoded.phoneNumber);
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Profile not found'
-      });
-    }
+router.post('/send-otp', otpRateLimiter, phoneRules, validate, sendOTP);
+router.post('/verify-otp', otpRules, validate, verifyOTP);
+router.post('/refresh-token', authenticateToken, refreshToken);
+router.get('/verify-token', authenticateToken, verifyToken);
+router.post('/logout', authenticateToken, logout);
+router.post('/admin-login', adminLoginRules, validate, adminLogin);
 
-    const updatedProfile = await databaseService.updateBuyerProfile(profile.id, req.body);
+router.get('/manufacturer-profile', authenticateToken, getManufacturerProfile);
+router.put('/manufacturer-profile', authenticateToken, manufacturerProfileUpdateRules, validate, updateManufacturerProfile);
+router.post('/manufacturer-onboarding', authenticateToken, manufacturerOnboardingRules, validate, manufacturerOnboarding);
 
-    res.status(200).json({
-      success: true,
-      message: 'Profile updated successfully',
-      data: { profile: updatedProfile }
-    });
-  } catch (error) {
-    console.error('Update buyer profile error:', error);
-    if (error.message === 'Invalid or expired token') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Failed to update profile'
-    });
-  }
-});
+router.get('/buyer-profile', authenticateToken, getBuyerProfile);
+router.put('/buyer-profile', authenticateToken, buyerProfileRules, validate, updateBuyerProfile);
 
 module.exports = router;

@@ -1,20 +1,8 @@
-/**
- * Requirement Repository - Requirements and Requirement Responses management
- */
 const { BaseRepository } = require('./BaseRepository');
 const { applySorting } = require('../../utils/queryOptionsHelper');
 const PAYOUT_RATES = require('../../constants/payoutRates');
 
 class RequirementRepository extends BaseRepository {
-  // =============================================
-  // REQUIREMENTS METHODS
-  // =============================================
-
-  /**
-   * Create a new requirement
-   * @param {Object} requirementData - Requirement data
-   * @returns {Promise<Object>} Created requirement
-   */
   async createRequirement(requirementData) {
     try {
       const { data, error } = await this.supabase
@@ -34,12 +22,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get requirements for a buyer
-   * @param {string} buyerId - Buyer profile ID
-   * @param {Object} options - Query options (filters, sorting, pagination)
-   * @returns {Promise<Array>} Array of requirements
-   */
+  
   async getBuyerRequirements(buyerId, options = {}) {
     try {
       // Select only fields needed for list view to reduce payload size
@@ -68,11 +51,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a single requirement by ID
-   * @param {string} requirementId - Requirement ID
-   * @returns {Promise<Object>} Requirement data
-   */
+  
   async getRequirement(requirementId) {
     try {
       const { data, error } = await this.supabase
@@ -92,11 +71,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a requirement by ID with buyer profile in one query.
-   * @param {string} requirementId - Requirement ID
-   * @returns {Promise<Object|null>} Requirement with buyer or null
-   */
+  
   async getRequirementWithBuyer(requirementId) {
     try {
       const { data, error } = await this.supabase
@@ -119,12 +94,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Update a requirement
-   * @param {string} requirementId - Requirement ID
-   * @param {Object} updateData - Data to update
-   * @returns {Promise<Object>} Updated requirement
-   */
+  
   async updateRequirement(requirementId, updateData) {
     try {
       const { data, error } = await this.supabase
@@ -148,11 +118,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Delete a requirement
-   * @param {string} requirementId - Requirement ID
-   * @returns {Promise<boolean>} Success status
-   */
+  
   async deleteRequirement(requirementId) {
     try {
       const { error } = await this.supabase
@@ -171,11 +137,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get buyer requirement statistics
-   * @param {string} buyerId - Buyer ID
-   * @returns {Promise<Object>} Statistics object with total, accepted, pending, rejected counts
-   */
+  
   async getBuyerRequirementStatistics(buyerId) {
     try {
       const { count: totalCount, error: totalError } = await this.supabase
@@ -219,11 +181,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get all requirements (for manufacturers to view)
-   * @param {Object} options - Query options (filters, sorting, pagination)
-   * @returns {Promise<Array>} Array of requirements with buyer info
-   */
+  
   async getAllRequirements(options = {}) {
     try {
       // Select only fields needed for list view to reduce payload size
@@ -259,11 +217,7 @@ class RequirementRepository extends BaseRepository {
   // REQUIREMENT RESPONSES METHODS
   // =============================================
 
-  /**
-   * Create a requirement response (manufacturer responds to a requirement)
-   * @param {Object} responseData - Response data
-   * @returns {Promise<Object>} Created response
-   */
+  
   async createRequirementResponse(responseData) {
     try {
       const { data, error } = await this.supabase
@@ -283,11 +237,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get responses for a specific requirement
-   * @param {string} requirementId - Requirement ID
-   * @returns {Promise<Array>} Array of responses
-   */
+  
   async getRequirementResponses(requirementId) {
     try {
       const { data, error } = await this.supabase
@@ -310,12 +260,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get manufacturer's response to a specific requirement
-   * @param {string} requirementId - Requirement ID
-   * @param {string} manufacturerId - Manufacturer ID
-   * @returns {Promise<Object|null>} Response or null
-   */
+  
   async getManufacturerResponse(requirementId, manufacturerId) {
     try {
       const { data, error } = await this.supabase
@@ -336,11 +281,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get a requirement response by ID
-   * @param {string} responseId - Response ID
-   * @returns {Promise<Object|null>} Response object or null
-   */
+  
   async getRequirementResponseById(responseId) {
     try {
       const { data, error } = await this.supabase
@@ -360,12 +301,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Update a requirement response
-   * @param {string} responseId - Response ID
-   * @param {Object} updateData - Data to update
-   * @returns {Promise<Object>} Updated response
-   */
+  
   async updateRequirementResponse(responseId, updateData) {
     try {
       const { data, error } = await this.supabase
@@ -389,12 +325,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get all responses from a manufacturer
-   * @param {string} manufacturerId - Manufacturer ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Array of responses with requirement info
-   */
+  
   async getManufacturerResponses(manufacturerId, options = {}) {
     try {
       let query = this.supabase
@@ -430,13 +361,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get all requirement threads for chat for a buyer-manufacturer pair.
-   * No status filtering is applied.
-   * @param {string} buyerId - Buyer ID from conversation
-   * @param {string} manufacturerId - Manufacturer ID from conversation
-   * @returns {Promise<Array>} Array of requirements with their details
-   */
+  
   async getActiveRequirementsForConversation(buyerId, manufacturerId) {
     try {
       const { data: responses, error: responsesError } = await this.supabase
@@ -482,10 +407,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get milestone payouts that are pending admin transfer.
-   * @returns {Promise<Array>} Pending payouts with payout metadata
-   */
+  
   async getPendingMilestonePayouts() {
     try {
       const { data: responses, error } = await this.supabase
@@ -546,11 +468,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get total revenue across all requirement responses.
-   * This sums quoted_price from requirement_responses without any status filter.
-   * @returns {Promise<number>} Total revenue (sum of quoted_price)
-   */
+  
   async getTotalRevenueFromResponses() {
     try {
       const { data, error } = await this.supabase
@@ -573,11 +491,7 @@ class RequirementRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Get top manufacturer by revenue based on requirement_responses.
-   * Uses quoted_price for revenue and counts accepted vs total responses.
-   * @returns {Promise<object|null>} Top manufacturer summary or null
-   */
+  
   async getTopManufacturerByRevenue() {
     try {
       const { data, error } = await this.supabase
@@ -653,4 +567,3 @@ class RequirementRepository extends BaseRepository {
 }
 
 module.exports = new RequirementRepository();
-

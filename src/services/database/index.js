@@ -1,10 +1,3 @@
-/**
- * Database Service - Aggregates all repositories into a unified API
- * 
- * This module re-exports all methods from individual repositories,
- * providing backwards compatibility with the original monolithic DatabaseService.
- */
-
 const AuthRepository = require('./AuthRepository');
 const BuyerRepository = require('./BuyerRepository');
 const ManufacturerRepository = require('./ManufacturerRepository');
@@ -13,11 +6,8 @@ const RequirementRepository = require('./RequirementRepository');
 const OrderRepository = require('./OrderRepository');
 const PaymentRepository = require('./PaymentRepository');
 
-// Create a unified database service object that combines all repositories
 const DatabaseService = {
-  // =============================================
-  // AUTH METHODS (OTP & Sessions)
-  // =============================================
+  // Auth
   storeOTPSession: (...args) => AuthRepository.storeOTPSession(...args),
   expireActiveOtps: (...args) => AuthRepository.expireActiveOtps(...args),
   findOTPSession: (...args) => AuthRepository.findOTPSession(...args),
@@ -29,9 +19,7 @@ const DatabaseService = {
   cleanupExpiredOTPs: (...args) => AuthRepository.cleanupExpiredOTPs(...args),
   cleanupExpiredSessions: (...args) => AuthRepository.cleanupExpiredSessions(...args),
 
-  // =============================================
-  // BUYER PROFILE METHODS
-  // =============================================
+  // Buyers
   createBuyerProfile: (...args) => BuyerRepository.createBuyerProfile(...args),
   findBuyerProfileByPhone: (...args) => BuyerRepository.findBuyerProfileByPhone(...args),
   updateBuyerProfileByPhone: (...args) => BuyerRepository.updateBuyerProfileByPhone(...args),
@@ -39,9 +27,7 @@ const DatabaseService = {
   updateBuyerProfile: (...args) => BuyerRepository.updateBuyerProfile(...args),
   getAllBuyers: (...args) => BuyerRepository.getAllBuyers(...args),
 
-  // =============================================
-  // MANUFACTURER PROFILE METHODS
-  // =============================================
+  // Manufacturers
   createManufacturerProfile: (...args) => ManufacturerRepository.createManufacturerProfile(...args),
   findManufacturerProfileByPhone: (...args) => ManufacturerRepository.findManufacturerProfileByPhone(...args),
   updateManufacturerProfileByPhone: (...args) => ManufacturerRepository.updateManufacturerProfileByPhone(...args),
@@ -49,9 +35,7 @@ const DatabaseService = {
   updateManufacturerProfile: (...args) => ManufacturerRepository.updateManufacturerProfile(...args),
   getAllManufacturers: (...args) => ManufacturerRepository.getAllManufacturers(...args),
 
-  // =============================================
-  // CONVERSATION & MESSAGE METHODS
-  // =============================================
+  // Conversations & Messages
   getOrCreateConversation: (...args) => ConversationRepository.getOrCreateConversation(...args),
   listConversations: (...args) => ConversationRepository.listConversations(...args),
   getConversation: (...args) => ConversationRepository.getConversation(...args),
@@ -60,9 +44,7 @@ const DatabaseService = {
   listMessagesWithAttachments: (...args) => ConversationRepository.listMessagesWithAttachments(...args),
   markRead: (...args) => ConversationRepository.markRead(...args),
 
-  // =============================================
-  // REQUIREMENT METHODS
-  // =============================================
+  // Requirements
   createRequirement: (...args) => RequirementRepository.createRequirement(...args),
   getBuyerRequirements: (...args) => RequirementRepository.getBuyerRequirements(...args),
   getRequirement: (...args) => RequirementRepository.getRequirement(...args),
@@ -74,9 +56,7 @@ const DatabaseService = {
   getTotalRevenueFromResponses: (...args) => RequirementRepository.getTotalRevenueFromResponses(...args),
   getTopManufacturerByRevenue: (...args) => RequirementRepository.getTopManufacturerByRevenue(...args),
 
-  // =============================================
-  // REQUIREMENT RESPONSE METHODS
-  // =============================================
+  // Requirement Responses
   createRequirementResponse: (...args) => RequirementRepository.createRequirementResponse(...args),
   getRequirementResponses: (...args) => RequirementRepository.getRequirementResponses(...args),
   getManufacturerResponse: (...args) => RequirementRepository.getManufacturerResponse(...args),
@@ -86,9 +66,7 @@ const DatabaseService = {
   getActiveRequirementsForConversation: (...args) => RequirementRepository.getActiveRequirementsForConversation(...args),
   getPendingMilestonePayouts: (...args) => RequirementRepository.getPendingMilestonePayouts(...args),
 
-  // =============================================
-  // ORDER METHODS
-  // =============================================
+  // Orders
   createOrder: (...args) => OrderRepository.createOrder(...args),
   getManufacturerOrders: (...args) => OrderRepository.getManufacturerOrders(...args),
   getOrder: (...args) => OrderRepository.getOrder(...args),
@@ -99,9 +77,7 @@ const DatabaseService = {
   getAdminRequirementOrders: (...args) => OrderRepository.getAdminRequirementOrders(...args),
   getReadyToShipOrders: (...args) => OrderRepository.getReadyToShipOrders(...args),
 
-  // =============================================
-  // PAYMENT METHODS
-  // =============================================
+  // Payments
   createPayment: (...args) => PaymentRepository.createPayment(...args),
   getPaymentById: (...args) => PaymentRepository.getPaymentById(...args),
   getPaymentWithDetails: (...args) => PaymentRepository.getPaymentWithDetails(...args),
@@ -112,13 +88,9 @@ const DatabaseService = {
   getPendingVerificationPayments: (...args) => PaymentRepository.getPendingVerificationPayments(...args),
   getBuyerPayments: (...args) => PaymentRepository.getBuyerPayments(...args),
   getManufacturerPayments: (...args) => PaymentRepository.getManufacturerPayments(...args),
-
 };
 
-// Also export individual repositories for direct access if needed
 module.exports = DatabaseService;
-
-// Named exports for direct repository access
 module.exports.AuthRepository = AuthRepository;
 module.exports.BuyerRepository = BuyerRepository;
 module.exports.ManufacturerRepository = ManufacturerRepository;
@@ -126,4 +98,3 @@ module.exports.ConversationRepository = ConversationRepository;
 module.exports.RequirementRepository = RequirementRepository;
 module.exports.OrderRepository = OrderRepository;
 module.exports.PaymentRepository = PaymentRepository;
-

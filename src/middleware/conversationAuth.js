@@ -1,9 +1,8 @@
 const databaseService = require('../services/databaseService');
 
-async function requireConversationAccess(req, res, next) {
+const requireConversationAccess = async (req, res, next) => {
   try {
-    const conversationId = req.params.id;
-    const convo = await databaseService.getConversation(conversationId);
+    const convo = await databaseService.getConversation(req.params.id);
     const { userId, role } = req.user;
 
     const isAllowed = !!convo && (
@@ -16,13 +15,10 @@ async function requireConversationAccess(req, res, next) {
     }
 
     req.conversation = convo;
-    return next();
-  } catch (error) {
-    console.error('Conversation authorization error:', error);
-    return res.status(400).json({ success: false, message: error.message || 'Failed to authorize conversation access' });
+    next();
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message || 'Failed to authorize conversation access' });
   }
-}
-
-module.exports = {
-  requireConversationAccess
 };
+
+module.exports = { requireConversationAccess };

@@ -1,12 +1,7 @@
 const axios = require('axios');
 
-const API_BASE_URL = 'https://wasenderapi.com/api';
-const API_ENDPOINTS = {
-  ON_WHATSAPP: '/on-whatsapp',
-  SEND_MESSAGE: '/send-message',
-  USER: '/user'
-};
-const PORTAL_URLS = {
+const API_BASE = 'https://wasenderapi.com/api';
+const PORTAL = {
   MANUFACTURER: 'https://grupo.in/manufacturer-portal',
   BUYER: 'https://grupo.in/buyer-portal'
 };
@@ -17,7 +12,7 @@ class WhatsAppService {
     this.enabled = !!this.apiKey;
     this.client = this.enabled
       ? axios.create({
-          baseURL: API_BASE_URL,
+          baseURL: API_BASE,
           headers: {
             Authorization: `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json',
@@ -26,9 +21,9 @@ class WhatsAppService {
           timeout: 30000
         })
       : null;
-    
+
     if (!this.enabled) {
-      console.warn('[WhatsAppService] WASENDER_API_KEY not configured. WhatsApp notifications disabled.');
+      console.warn('[WhatsAppService] WASENDER_API_KEY not set. Notifications disabled.');
     }
   }
 
@@ -36,439 +31,212 @@ class WhatsAppService {
     return { success: false, error: { code, message } };
   }
 
-  /**
-   * Format phone number to JID format (WhatsApp ID)
-   * @param {string} phoneNumber - Phone number in E.164 format (e.g., +919876543210)
-   * @returns {string} JID format (e.g., 919876543210@s.whatsapp.net)
-   */
   formatToJid(phoneNumber) {
-    // Remove + and any spaces/dashes
-    const cleaned = phoneNumber.replace(/[\+\s\-\(\)]/g, '');
-    return `${cleaned}@s.whatsapp.net`;
+    return `${phoneNumber.replace(/[\+\s\-\(\)]/g, '')}@s.whatsapp.net`;
   }
 
-  /**
-   * Format phone number for API (without @s.whatsapp.net)
-   * @param {string} phoneNumber - Phone number in E.164 format
-   * @returns {string} Cleaned phone number
-   */
   formatPhoneNumber(phoneNumber) {
-    // Remove + and any spaces/dashes
     return phoneNumber.replace(/[\+\s\-\(\)]/g, '');
   }
 
-  /**
-   * Check if a phone number is registered on WhatsApp
-   * @param {string} phoneNumber - Phone number in E.164 format
-   * @returns {Promise<{exists: boolean, jid?: string}>}
-   */
   async isOnWhatsApp(phoneNumber) {
-    if (!this.enabled) {
-      console.warn('[WhatsAppService] Service not enabled');
-      return { exists: false, error: { code: 'WHATSAPP_NOT_CONFIGURED', message: 'WhatsApp service not configured' } };
-    }
-
+    if (!this.enabled) return { exists: false, error: { code: 'WHATSAPP_NOT_CONFIGURED', message: 'WhatsApp service not configured' } };
     try {
       const jid = this.formatToJid(phoneNumber);
-      const response = await this.client.get(`${API_ENDPOINTS.ON_WHATSAPP}/${jid}`);
-      
-      return {
-        exists: response.data?.exists === true || response.data?.onWhatsApp === true,
-        jid: jid
-      };
+      const response = await this.client.get(`/on-whatsapp/${jid}`);
+      return { exists: response.data?.exists === true || response.data?.onWhatsApp === true, jid };
     } catch (error) {
-      console.error('[WhatsAppService] Error checking WhatsApp status:', error.message);
       return { exists: false, error: { code: 'WHATSAPP_STATUS_CHECK_FAILED', message: error.message } };
     }
   }
 
-  /**
-   * Send a text message via WhatsApp
-   * @param {string} phoneNumber - Recipient phone number in E.164 format
-   * @param {string} message - Message text to send
-   * @returns {Promise<{success: boolean, messageId?: string, error?: {code: string, message: string}}>}
-   */
   async sendMessage(phoneNumber, message) {
-    if (!this.enabled) {
-      console.warn('[WhatsAppService] Service not enabled. Message not sent.');
-      return this.buildError('WhatsApp service not configured', 'WHATSAPP_NOT_CONFIGURED');
-    }
-
-    if (!phoneNumber || !message) {
-      return this.buildError('Phone number and message are required', 'WHATSAPP_INVALID_INPUT');
-    }
+    if (!this.enabled) return this.buildError('WhatsApp service not configured', 'WHATSAPP_NOT_CONFIGURED');
+    if (!phoneNumber || !message) return this.buildError('Phone number and message are required', 'WHATSAPP_INVALID_INPUT');
 
     try {
-      const to = this.formatPhoneNumber(phoneNumber);
-      
-      const response = await this.client.post(API_ENDPOINTS.SEND_MESSAGE, {
-        to: to,
+      const response = await this.client.post('/send-message', {
+        to: this.formatPhoneNumber(phoneNumber),
         text: message
       });
-
-      console.log(`[WhatsAppService] Message sent to ${phoneNumber}`);
-      
-      return {
-        success: true,
-        messageId: response.data?.messageId || response.data?.id || null
-      };
+      return { success: true, messageId: response.data?.messageId || response.data?.id || null };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.message;
-      console.error('[WhatsAppService] Error sending message:', errorMessage);
-      
-      return this.buildError(errorMessage, 'WHATSAPP_SEND_FAILED');
+      return this.buildError(error.response?.data?.message || error.message, 'WHATSAPP_SEND_FAILED');
     }
   }
 
-  /**
-   * Get session user info (verify API connection)
-   * @returns {Promise<{success: boolean, user?: object, error?: {code: string, message: string}}>}
-   */
   async getSessionInfo() {
-    if (!this.enabled) {
-      return this.buildError('WhatsApp service not configured', 'WHATSAPP_NOT_CONFIGURED');
-    }
-
+    if (!this.enabled) return this.buildError('WhatsApp service not configured', 'WHATSAPP_NOT_CONFIGURED');
     try {
-      const response = await this.client.get(API_ENDPOINTS.USER);
-      
-      return {
-        success: true,
-        user: response.data
-      };
+      const response = await this.client.get('/user');
+      return { success: true, user: response.data };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.message;
-      console.error('[WhatsAppService] Error getting session info:', errorMessage);
-      
-      return this.buildError(errorMessage, 'WHATSAPP_SESSION_INFO_FAILED');
+      return this.buildError(error.response?.data?.message || error.message, 'WHATSAPP_SESSION_INFO_FAILED');
     }
   }
 
-  // ========================================
-  // Notification Helper Methods
-  // ========================================
-
-  /**
-   * Send notification for new requirement (to manufacturers)
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyNewRequirement(phoneNumber, requirement) {
-    const message = `🔔 *New Requirement on Grupo!*
+    return this.sendMessage(phoneNumber, `🔔 *New Requirement on Grupo!*
 
 A buyer is looking for:
 ${requirement.quantity ? `📊 Quantity: ${requirement.quantity.toLocaleString()}` : ''}
 ${requirement.product_type ? `🏷️ Type: ${requirement.product_type}` : ''}
 
-Login to your Grupo manufacturer portal to submit a quote!
-${PORTAL_URLS.MANUFACTURER}`;
-
-    return this.sendMessage(phoneNumber, message);
+Login to submit a quote!
+${PORTAL.MANUFACTURER}`);
   }
 
-  /**
-   * Send notification for new requirement response (to buyers)
-   * @param {string} phoneNumber - Buyer phone number
-   * @param {object} response - Response details
-   * @param {object} manufacturer - Manufacturer details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyNewRequirementResponse(phoneNumber, response, manufacturer) {
-    const message = `🎉 *New Quote Received on Grupo!*
+    return this.sendMessage(phoneNumber, `🎉 *New Quote Received on Grupo!*
 
 ${manufacturer?.unit_name || 'A manufacturer'} has responded to your requirement!
 
-Login to your Grupo buyer portal to review and respond!
-${PORTAL_URLS.BUYER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.BUYER}`);
   }
 
-  /**
-   * Send notification for requirement response status update (to manufacturers)
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {string} status - New status (accepted, rejected)
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyResponseStatusUpdate(phoneNumber, status, requirement) {
-    const statusEmoji = status === 'accepted' ? '✅' : status === 'rejected' ? '❌' : '💬';
-    const statusText = status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : String(status);
-    
-    const requirementIdentifier = requirement?.requirement_no || requirement?.id || 'the requirement';
-    
-    const message = `${statusEmoji} *Response ${statusText}!*
+    const emoji = status === 'accepted' ? '✅' : '❌';
+    const label = status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : String(status);
+    const id = requirement?.requirement_no || requirement?.id || 'the requirement';
 
-Your response for requirement ${requirementIdentifier} has been ${statusText}.
+    return this.sendMessage(phoneNumber, `${emoji} *Response ${label}!*
 
-Login to your Grupo manufacturer portal for more details!
-${PORTAL_URLS.MANUFACTURER}`;
+Your response for requirement ${id} has been ${label}.
 
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.MANUFACTURER}`);
   }
 
-  // ========================================
-  // Payment Notification Methods
-  // ========================================
-
-  /**
-   * Notify manufacturer that payment has been verified and they can start production
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {object} payment - Payment details
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyPaymentVerified(phoneNumber, payment, requirement) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
-    const isFirstPayment = payment?.payment_number === 1;
+    const id = requirement?.requirement_no || requirement?.id || 'your order';
+    const isFirst = payment?.payment_number === 1;
+    const ref = payment?.utr_number ? `\n\nPayment Reference : ${payment.utr_number}` : '';
 
-    const paymentReferenceLine = payment?.utr_number
-      ? `\n\nPayment Reference : ${payment.utr_number}`
-      : '';
-    
-    const message = isFirstPayment
-      ? `💰 *Payment Received !*
+    return this.sendMessage(phoneNumber, isFirst
+      ? `💰 *Payment Received!*
 
-Amount Received (50% advance) has been verified for requirement ${requirementId}.
+Amount Received (50% advance) verified for requirement ${id}.
 
-✅ Please wait for the M1 Payout to be transferred before starting production.
+✅ Please wait for the M1 Payout before starting production.
 
-Login to your Grupo manufacturer portal to update milestones.
-${PORTAL_URLS.MANUFACTURER}`
+${PORTAL.MANUFACTURER}`
       : `💰 *Final Payment Received - Ship Now!*
 
-Amount Received (remaining 50%) has been verified for requirement ${requirementId}.
+Amount Received (remaining 50%) verified for requirement ${id}.
 
-📦 Please ship the order and share tracking details with the buyer.
-${paymentReferenceLine}
+📦 Please ship the order and share tracking details.
+${ref}
 
-${PORTAL_URLS.MANUFACTURER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.MANUFACTURER}`);
   }
 
-  /**
-   * Notify buyer that their payment verification failed and they need to retry
-   * @param {string} phoneNumber - Buyer phone number
-   * @param {object} payment - Payment details
-   * @param {string} reason - Rejection reason
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyPaymentRejected(phoneNumber, payment, reason) {
-    const paymentReferenceLine = payment?.utr_number
-      ? `\n\nPayment Reference : ${payment.utr_number}`
-      : '';
-
-    const message = `❌ *Payment Verification Failed*
-
-We could not verify the UTR for your submitted payment.
+    const ref = payment?.utr_number ? `\n\nPayment Reference : ${payment.utr_number}` : '';
+    return this.sendMessage(phoneNumber, `❌ *Payment Verification Failed*
 
 ${reason ? `Reason: ${reason}` : ''}
 
-Please retry the payment with the correct UTR number.
-${paymentReferenceLine}
+Please retry with the correct UTR number.
+${ref}
 
-${PORTAL_URLS.BUYER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.BUYER}`);
   }
 
-  // ========================================
-  // Milestone Notification Methods
-  // ========================================
-
-  /**
-   * Notify buyer that a milestone is pending their approval
-   * @param {string} phoneNumber - Buyer phone number
-   * @param {string} milestone - 'm1' or 'm2'
-   * @param {object} requirement - Requirement details
-   * @param {object} manufacturer - Manufacturer details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyMilestonePendingApproval(phoneNumber, milestone, requirement, manufacturer) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
-    const manufacturerName = manufacturer?.unit_name || 'The manufacturer';
-    
-    const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
-    
-    const message = `📦 *${milestoneLabel} Ready for Review!*
+    const id = requirement?.requirement_no || requirement?.id || 'your order';
+    const label = milestone === 'm1' ? 'M1' : 'M2';
+    const mfr = manufacturer?.unit_name || 'The manufacturer';
 
-${manufacturerName} has marked ${milestoneLabel} as complete for requirement ${requirementId}.
+    return this.sendMessage(phoneNumber, `📦 *${label} Ready for Review!*
 
-Please review the samples/progress in your chat and approve to release the milestone payment.
+${mfr} has marked ${label} as complete for requirement ${id}.
 
-${PORTAL_URLS.BUYER}`;
+Please review and approve to release the milestone payment.
 
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.BUYER}`);
   }
 
-  /**
-   * Notify manufacturer that buyer approved their milestone
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {string} milestone - 'm1' or 'm2'
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyMilestoneApproved(phoneNumber, milestone, requirement) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
-    
-    const message = `✅ *${milestoneLabel} Approved!*
+    const id = requirement?.requirement_no || requirement?.id || 'the order';
+    const label = milestone === 'm1' ? 'M1' : 'M2';
 
-The buyer has approved ${milestoneLabel} for requirement ${requirementId}.
+    return this.sendMessage(phoneNumber, `✅ *${label} Approved!*
 
-We'll notify you about the shipping once the buyer pays the remaining 50%.
+The buyer has approved ${label} for requirement ${id}.
 
-${PORTAL_URLS.MANUFACTURER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.MANUFACTURER}`);
   }
 
-  /**
-   * Notify manufacturer that milestone payout has been transferred
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {string} milestone - 'm1' or 'm2'
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyMilestonePayoutCompleted(phoneNumber, milestone, requirement, transactionRef) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
+    const id = requirement?.requirement_no || requirement?.id || 'the order';
+    const label = milestone === 'm1' ? 'M1' : 'M2';
+    const next = milestone === 'm1'
+      ? '\n\n🚀 You can now proceed with sample production.'
+      : '\n\n📦 You can now proceed with full production.';
+    const ref = transactionRef ? `\n\nPayment Reference : ${transactionRef}` : '';
 
-    const milestoneLabel = milestone === 'm1' ? 'M1' : 'M2';
-    
-    const nextStepMessage = milestone === 'm1'
-      ? '\n\n🚀 You can now proceed with sample production. Update progress in your portal.'
-      : '\n\n📦 You can now proceed with full production. Update progress in your portal.';
-    
-    const paymentReferenceLine = transactionRef
-      ? `\n\nPayment Reference : ${transactionRef}`
-      : '';
+    return this.sendMessage(phoneNumber, `💰 *${label} Payout Transferred!*
 
-    const message = `💰 *${milestoneLabel} Payout Transferred!*
+Payout transferred for requirement ${id}.${next}
+${ref}
 
-Payout transferred (25% milestone) for requirement ${requirementId}.${nextStepMessage}
-
-${paymentReferenceLine}
-
-${PORTAL_URLS.MANUFACTURER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.MANUFACTURER}`);
   }
 
-  // ========================================
-  // Shipping Notification Methods
-  // ========================================
-
-  /**
-   * Notify buyer that their order has been shipped
-   * @param {string} phoneNumber - Buyer phone number
-   * @param {object} requirement - Requirement details
-   * @param {string} trackingNumber - Optional tracking number
-   * @param {string} shippingProvider - Optional shipping provider
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyOrderShipped(phoneNumber, requirement, trackingNumber, shippingProvider) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'your order';
-    
-    let trackingInfo = '';
+    const id = requirement?.requirement_no || requirement?.id || 'your order';
+    let tracking = '';
     if (trackingNumber || shippingProvider) {
-      trackingInfo = '\n\n📋 Tracking Details:';
-      if (shippingProvider) trackingInfo += `\nProvider: ${shippingProvider}`;
-      if (trackingNumber) trackingInfo += `\nTracking #: ${trackingNumber}`;
+      tracking = '\n\n📋 Tracking Details:';
+      if (shippingProvider) tracking += `\nProvider: ${shippingProvider}`;
+      if (trackingNumber) tracking += `\nTracking #: ${trackingNumber}`;
     }
-    
-    const message = `📦 *Your Order Has Been Shipped!*
 
-Great news! Requirement ${requirementId} has been dispatched by the manufacturer.
+    return this.sendMessage(phoneNumber, `📦 *Your Order Has Been Shipped!*
 
-${trackingInfo}
+Requirement ${id} has been dispatched.
+${tracking}
 
-${PORTAL_URLS.BUYER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.BUYER}`);
   }
 
-  /**
-   * Notify manufacturer that remaining payment has been received (ready to ship)
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {object} payment - Payment details
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyRemainingPaymentReceived(phoneNumber, payment, requirement) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    // Intentionally not displaying rupee amounts in WhatsApp notifications.
+    const id = requirement?.requirement_no || requirement?.id || 'the order';
+    const ref = payment?.utr_number ? `\n\nPayment Reference : ${payment.utr_number}` : '';
 
-    const paymentReferenceLine = payment?.utr_number
-      ? `\n\nPayment Reference : ${payment.utr_number}`
-      : '';
+    return this.sendMessage(phoneNumber, `💰 *Remaining Payment Received - Ship Now!*
 
-    const message = `💰 *Remaining Payment Received - Ship Now!*
-
-Amount Received (remaining 50%) has been verified for requirement ${requirementId}.
+Amount Received (remaining 50%) verified for requirement ${id}.
 
 📦 Please ship the order to the buyer.
+${ref}
 
-${paymentReferenceLine}
-
-${PORTAL_URLS.MANUFACTURER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.MANUFACTURER}`);
   }
 
-  // ========================================
-  // Delivery & Completion Notification Methods
-  // ========================================
-
-  /**
-   * Notify manufacturer that buyer confirmed delivery
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyDeliveryConfirmed(phoneNumber, requirement) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
-    
-    const message = `✅ *Delivery Confirmed!*
+    const id = requirement?.requirement_no || requirement?.id || 'the order';
+    return this.sendMessage(phoneNumber, `✅ *Delivery Confirmed!*
 
-The buyer has confirmed receiving requirement ${requirementId}.
+The buyer has confirmed receiving requirement ${id}.
 
-The admin will process the final payout shortly. You'll be notified once the payment is transferred.
+The admin will process the final payout shortly.
 
-${PORTAL_URLS.MANUFACTURER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.MANUFACTURER}`);
   }
 
-  /**
-   * Notify manufacturer that final payout has been transferred and order is complete
-   * @param {string} phoneNumber - Manufacturer phone number
-   * @param {object} requirement - Requirement details
-   * @returns {Promise<{success: boolean, error?: {code: string, message: string}}>}
-   */
   async notifyFinalPayoutCompleted(phoneNumber, requirement, transactionRef) {
-    const requirementId = requirement?.requirement_no || requirement?.id || 'the order';
+    const id = requirement?.requirement_no || requirement?.id || 'the order';
+    const ref = transactionRef ? `\n\nPayment Reference : ${transactionRef}` : '';
 
-    const paymentReferenceLine = transactionRef
-      ? `\n\nPayment Reference : ${transactionRef}`
-      : '';
-    
-    const message = `🎉 *Order Completed - Final Payout Transferred!*
+    return this.sendMessage(phoneNumber, `🎉 *Order Completed - Final Payout Transferred!*
 
-Final payout transferred (final 50%) for requirement ${requirementId}.
+Final payout transferred for requirement ${id}.
 
 Thank you for a successful order!
+${ref}
 
-${paymentReferenceLine}
-
-${PORTAL_URLS.MANUFACTURER}`;
-
-    return this.sendMessage(phoneNumber, message);
+${PORTAL.MANUFACTURER}`);
   }
-
 }
 
-// Export singleton instance
 module.exports = new WhatsAppService();
-
